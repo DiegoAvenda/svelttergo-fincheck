@@ -1,0 +1,260 @@
+@import 'tailwindcss';
+
+@theme {
+	/* Colores principales */
+	--color-primary-50: #eef7f0;
+	--color-primary-100: #d5ecd9;
+	--color-primary-200: #a8d9b3;
+	--color-primary-300: #6fc08a;
+	--color-primary-400: #3fa968;
+	--color-primary-500: #22874c;
+	--color-primary-600: #1a6e3e;
+	--color-primary-700: #155632;
+	--color-primary-800: #114527;
+	--color-primary-900: #0d3820;
+
+	/* Colores de acento */
+	--color-accent-50: #fdf6ec;
+	--color-accent-100: #fae9cc;
+	--color-accent-200: #f5d399;
+	--color-accent-300: #f0b94e;
+	--color-accent-400: #eca526;
+	--color-accent-500: #e08b0d;
+	--color-accent-600: #c66d08;
+	--color-accent-700: #a5500b;
+	--color-accent-800: #864010;
+	--color-accent-900: #703510;
+
+	/* Colores de peligro */
+	--color-danger-50: #fef2f2;
+	--color-danger-100: #fee2e2;
+	--color-danger-200: #fecaca;
+	--color-danger-300: #fca5a5;
+	--color-danger-400: #f87171;
+	--color-danger-500: #ef4444;
+	--color-danger-600: #dc2626;
+
+	/* Superficie */
+	--color-surface-50: #fafafa;
+	--color-surface-100: #f4f4f5;
+	--color-surface-200: #e4e4e7;
+	--color-surface-300: #d4d4d8;
+	--color-surface-400: #a1a1aa;
+	--color-surface-500: #71717a;
+	--color-surface-600: #52525b;
+	--color-surface-700: #3f3f46;
+	--color-surface-800: #27272a;
+	--color-surface-900: #18181b;
+	--color-surface-950: #09090b;
+
+	/* Tipografía */
+	--font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+	--font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+	/* Sombras */
+	--shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.06);
+	--shadow-elevated: 0 4px 6px -1px rgb(0 0 0 / 0.08), 0 2px 4px -2px rgb(0 0 0 / 0.06);
+	--shadow-sheet: 0 -4px 24px -4px rgb(0 0 0 / 0.12);
+
+	/* Radios */
+	--radius-sm: 0.375rem;
+	--radius-md: 0.5rem;
+	--radius-lg: 0.75rem;
+	--radius-xl: 1rem;
+	--radius-2xl: 1.25rem;
+	--radius-full: 9999px;
+}
+
+@layer base {
+	:root {
+		color-scheme: light;
+		--app-bg: var(--color-surface-50);
+		--app-text: var(--color-surface-900);
+		--app-text-secondary: var(--color-surface-500);
+		--app-border: var(--color-surface-200);
+		--card-bg: #ffffff;
+		--input-bg: var(--color-surface-100);
+		--tab-bar-bg: #ffffff;
+		--sheet-bg: #ffffff;
+	}
+
+	@media (prefers-color-scheme: dark) {
+		:root {
+			color-scheme: dark;
+			--app-bg: var(--color-surface-950);
+			--app-text: var(--color-surface-100);
+			--app-text-secondary: var(--color-surface-400);
+			--app-border: var(--color-surface-800);
+			--card-bg: var(--color-surface-900);
+			--input-bg: var(--color-surface-800);
+			--tab-bar-bg: var(--color-surface-900);
+			--sheet-bg: var(--color-surface-900);
+		}
+	}
+
+	* {
+		-webkit-tap-highlight-color: transparent;
+	}
+
+	html {
+		font-family: var(--font-sans);
+		background: var(--app-bg);
+		color: var(--app-text);
+	}
+
+	body {
+		min-height: 100dvh;
+		overflow-x: hidden;
+	}
+
+	input, select, textarea, button {
+		font-family: inherit;
+	}
+
+	/* Scroll suave */
+	@media (prefers-reduced-motion: no-preference) {
+		html {
+			scroll-behavior: smooth;
+		}
+	}
+}
+
+/* Utilidades de la app */
+@utility app-container {
+	max-width: 32rem;
+	margin-inline: auto;
+	padding-inline: 1rem;
+	width: 100%;
+}
+
+@utility card {
+	background: var(--card-bg);
+	border-radius: var(--radius-xl);
+	box-shadow: var(--shadow-card);
+	border: 1px solid var(--app-border);
+}
+
+@utility btn-primary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 0.75rem 1.5rem;
+	background: var(--color-primary-500);
+	color: white;
+	border-radius: var(--radius-lg);
+	font-weight: 600;
+	font-size: 0.9375rem;
+	border: none;
+	cursor: pointer;
+	transition: background 150ms ease, transform 100ms ease;
+	min-height: 2.75rem;
+
+	&:hover { background: var(--color-primary-600); }
+	&:active { transform: scale(0.98); }
+	&:disabled { opacity: 0.5; cursor: not-allowed; }
+}
+
+@utility btn-secondary {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 0.75rem 1.5rem;
+	background: var(--input-bg);
+	color: var(--app-text);
+	border-radius: var(--radius-lg);
+	font-weight: 500;
+	font-size: 0.9375rem;
+	border: 1px solid var(--app-border);
+	cursor: pointer;
+	transition: background 150ms ease;
+	min-height: 2.75rem;
+
+	&:hover { background: var(--color-surface-200); }
+	&:active { transform: scale(0.98); }
+}
+
+@utility btn-danger {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	gap: 0.5rem;
+	padding: 0.75rem 1.5rem;
+	background: var(--color-danger-500);
+	color: white;
+	border-radius: var(--radius-lg);
+	font-weight: 600;
+	font-size: 0.9375rem;
+	border: none;
+	cursor: pointer;
+	transition: background 150ms ease;
+	min-height: 2.75rem;
+
+	&:hover { background: var(--color-danger-600); }
+}
+
+@utility input-field {
+	width: 100%;
+	padding: 0.75rem 1rem;
+	background: var(--input-bg);
+	border: 1px solid var(--app-border);
+	border-radius: var(--radius-lg);
+	font-size: 1rem;
+	color: var(--app-text);
+	outline: none;
+	transition: border-color 150ms ease, box-shadow 150ms ease;
+	min-height: 2.75rem;
+
+	&:focus {
+		border-color: var(--color-primary-400);
+		box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-400) 20%, transparent);
+	}
+
+	&::placeholder {
+		color: var(--app-text-secondary);
+	}
+}
+
+@utility chip {
+	display: inline-flex;
+	align-items: center;
+	padding: 0.5rem 1rem;
+	background: var(--input-bg);
+	border: 1px solid var(--app-border);
+	border-radius: var(--radius-full);
+	font-size: 0.8125rem;
+	font-weight: 500;
+	color: var(--app-text);
+	cursor: pointer;
+	transition: all 150ms ease;
+	white-space: nowrap;
+	min-height: 2.25rem;
+
+	&:hover { background: var(--color-surface-200); }
+}
+
+@utility chip-active {
+	background: var(--color-primary-500);
+	color: white;
+	border-color: var(--color-primary-500);
+
+	&:hover { background: var(--color-primary-600); }
+}
+
+@utility text-secondary {
+	color: var(--app-text-secondary);
+}
+
+@utility text-success {
+	color: var(--color-primary-500);
+}
+
+@utility text-danger {
+	color: var(--color-danger-500);
+}
+
+@utility text-money {
+	font-variant-numeric: tabular-nums;
+	font-weight: 600;
+}

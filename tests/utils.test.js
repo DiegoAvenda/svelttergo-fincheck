@@ -1,0 +1,144 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+	pesosToCents,
+	centsToPesos,
+	formatMoney,
+	parseAmountToCents
+} from '../src/lib/utils/money.js';
+
+import {
+	normalizeDescription
+} from '../src/lib/utils/normalize-description.js';
+
+import {
+	getMonthRange,
+	getPreviousMonthRange,
+	getLastNMonthsRange,
+	getPeriodRange,
+	getComparisonRange,
+	todayInMX,
+	formatDayGroup
+} from '../src/lib/utils/periods.js';
+
+test('Money utilities', async (t) => {
+	await t.test('pesosToCents converts decimal to integer cents correctly', () => {
+		assert.equal(pesosToCents(10.5), 1050);
+		assert.equal(pesosToCents(0.99), 99);
+		assert.equal(pesosToCents(1234.56), 123456);
+		assert.equal(pesosToCents(0), 0);
+		// Decimal rounding precision
+		assert.equal(pesosToCents(19.99), 1999);
+	});
+
+	await t.test('centsToPesos converts cents to pesos', () => {
+		assert.equal(centsToPesos(1050), 10.5);
+		assert.equal(centsToPesos(99), 0.99);
+		assert.equal(centsToPesos(123456), 1234.56);
+	});
+
+	await t.test('formatMoney formats as MXN currency', () => {
+		const formatted = formatMoney(123456);
+		// Debe contener $ y 1,234.56
+		assert.match(formatted, /1,234\.56/);
+		assert.match(formatted, /\$/);
+	});
+
+	await t.test('parseAmountToCents parses string inputs cleanly', () => {
+		assert.equal(parseAmountToCents('$1,234.56'), 123456);
+		assert.equal(parseAmountToCents(' 50.00 '), 5000);
+		assert.equal(parseAmountToCents('18.5'), 1850);
+		assert.equal(parseAmountToCents('0'), 0);
+		assert.equal(parseAmountToCents(''), null);
+		assert.equal(parseAmountToCents('abc'), null);
+	});
+});
+
+test('Description normalization', async (t) => {
+	await t.test('converts to lowercase and strips accents', () => {
+		assert.equal(normalizeDescription('CAFÉ CON LECHE'), 'cafe con leche');
+		assert.equal(normalizeDescription('JABÓN LÍQUIDO'), 'jabon liquido');
+	});
+
+	await t.test('preserves important product numbers and measurements', () => {
+		assert.equal(normalizeDescription('COCA COLA 600ML NR'), 'coca cola 600ml nr');
+		assert.equal(normalizeDescription('AGUA BONAFONT 1.5L'), 'agua bonafont 1.5l');
+		assert.equal(normalizeDescription('SABRITAS 45G SAL'), 'sabritas 45g sal');
+		assert.equal(normalizeDescription('LECHE LALA 1L DESLACTOSADA'), 'leche lala 1l deslactosada');
+	});
+
+	await t.test('removes unnecessary punctuation and multiple spaces', () => {
+		assert.equal(normalizeDescription('  GALLETAS... OREO!  '), 'galletas oreo');
+		assert.equal(normalizeDescription('PAN BLANCO BIMBO (GRANDE)'), 'pan blanco bimbo grande');
+		assert.equal(normalizeDescription('REFRESCO - CHICO / PROMO'), 'refresco chico promo');
+	});
+
+	await t.test('handles empty or non-string inputs safely', () => {
+		assert.equal(normalizeDescription(''), '');
+		assert.equal(normalizeDescription(null), '');
+		assert.equal(normalizeDescription(undefined), '');
+	});
+});
+
+test('Period calculation with Mexico City timezone and start day', async (t) => {
+	await t.test('todayInMX returns a valid date in America/Mexico_City', () => {
+		const today = todayInMX();
+		assert.ok(today instanceof Date);
+		assert.ok(!isNaN(today.getTime()));
+	});
+
+	await t.test('getMonthRange with monthStartDay = 1', () => {
+		const refDate = new Date(Date.UTC(2026, 4, 15)); // 15 de mayo de 2026
+		const range = getMonthRange(refDate, 1);
+
+		assert.equal(range.start.toISOString(), '2026-05-01T00:00:00.000Z');
+		assert.equal(range.end.toISOString(), '2026-06-01T00:00:00.000Z');
+	});
+
+	await t.test('getMonthRange with custom monthStartDay = 15', () => {
+		// Día 20 de mayo (después del día 15): periodo va del 15 de mayo al 15 de junio
+		const refDate1 = new Date(Date.UTC(2026, 4, 20));
+		const range1 = getMonthRange(refDate1, 15);
+		assert.equal(range1.start.toISOString(), '2026-05-15T00:00:00.000Z');
+		assert.equal(range1.end.toISOString(), '2026-06-15T00:00:00.000Z');
+
+		// Día 10 de mayo (antes del día 15): periodo va del 15 de abril al 15 de mayo
+		const refDate2 = new Date(Date.UTC(2026, 4, 10));
+		const range2 = getMonthRange(refDate2, 15);
+		assert.equal(range2.start.toISOString(), '2026-04-15T00:00:00.000Z');
+		assert.equal(range2.end.toISOString(), '2026-05-15T00:00:00.000Z');
+	});
+
+	await t.test('getPreviousMonthRange returns immediate prior month range', () => {
+		const refDate = new Date(Date.UTC(2026, 4, 15)); // Mayo 2026
+		const prev = getPreviousMonthRange(refDate, 1);
+		assert.equal(prev.start.toISOString(), '2026-04-01T00:00:00.000Z');
+		assert.equal(prev.end.toISOString(), '2026-05-01T00:00:00.000Z');
+	});
+
+	await t.test('getLastNMonthsRange returns correct 3-month window', () => {
+		const refDate = new Date(Date.UTC(2026, 4, 15)); // Mayo 2026
+		const range = getLastNMonthsRange(refDate, 3, 1);
+		assert.equal(range.start.toISOString(), '2026-03-01T00:00:00.000Z');
+		assert.equal(range.end.toISOString(), '2026-06-01T00:00:00.000Z');
+	});
+
+	await t.test('getComparisonRange returns equal duration immediately preceding window', () => {
+		const range = {
+			start: new Date(Date.UTC(2026, 4, 1)),
+			end: new Date(Date.UTC(2026, 5, 1))
+		};
+		const comp = getComparisonRange(range);
+		assert.equal(comp.end.getTime(), range.start.getTime());
+		assert.equal(comp.end.getTime() - comp.start.getTime(), range.end.getTime() - range.start.getTime());
+	});
+
+	await t.test('formatDayGroup identifies Hoy, Ayer, or returns formatted date', () => {
+		const today = todayInMX();
+		assert.equal(formatDayGroup(today), 'Hoy');
+
+		const yesterday = new Date(today.getTime() - 86400000);
+		assert.equal(formatDayGroup(yesterday), 'Ayer');
+	});
+});

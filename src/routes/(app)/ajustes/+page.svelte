@@ -1,0 +1,375 @@
+<script>
+	import { enhance } from '$app/forms';
+
+	let { data, form } = $props();
+
+	let monthlyIncome = $state(data.settings.monthlyIncomePesos);
+	let currency = $state(data.settings.currency);
+	let monthStartDay = $state(data.settings.monthStartDay);
+	let saving = $state(false);
+	let loggingOut = $state(false);
+</script>
+
+<svelte:head>
+	<title>Ajustes — Fincheck</title>
+</svelte:head>
+
+<div class="settings-page">
+	<div class="header">
+		<h1 class="page-title">Ajustes</h1>
+		<p class="subtitle">Preferencias de cuenta y configuración de finanzas.</p>
+	</div>
+
+	{#if form?.success}
+		<div class="success-banner card">Ajustes guardados correctamente</div>
+	{/if}
+
+	<!-- Perfil de usuario -->
+	<div class="profile-card card">
+		<div class="avatar">
+			{#if data.user.image}
+				<img src={data.user.image} alt={data.user.name} class="avatar-img" />
+			{:else}
+				<span class="avatar-initial">{(data.user.name || 'U')[0].toUpperCase()}</span>
+			{/if}
+		</div>
+		<div class="profile-info">
+			<span class="user-name">{data.user.name || 'Usuario'}</span>
+			<span class="user-email">{data.user.email}</span>
+		</div>
+	</div>
+
+	<!-- Menú de navegación de ajustes -->
+	<div class="nav-card card">
+		<a href="/ajustes/categorias" class="nav-item">
+			<div class="nav-left">
+				<div class="nav-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<rect x="3" y="3" width="7" height="7" />
+						<rect x="14" y="3" width="7" height="7" />
+						<rect x="14" y="14" width="7" height="7" />
+						<rect x="3" y="14" width="7" height="7" />
+					</svg>
+				</div>
+				<div>
+					<span class="nav-title">Categorías de gasto</span>
+					<span class="nav-sub">Crear, renombrar, favoritas y ocultar</span>
+				</div>
+			</div>
+			<span class="chevron">›</span>
+		</a>
+
+		<div class="divider"></div>
+
+		<a href="/ajustes/exportar" class="nav-item">
+			<div class="nav-left">
+				<div class="nav-icon">
+					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+						<polyline points="7 10 12 15 17 10" />
+						<line x1="12" y1="15" x2="12" y2="3" />
+					</svg>
+				</div>
+				<div>
+					<span class="nav-title">Exportar datos</span>
+					<span class="nav-sub">Descargar movimientos en archivo CSV</span>
+				</div>
+			</div>
+			<span class="chevron">›</span>
+		</a>
+	</div>
+
+	<!-- Formulario de preferencias -->
+	<form
+		method="post"
+		action="?/saveSettings"
+		use:enhance={() => {
+			saving = true;
+			return async ({ update }) => {
+				saving = false;
+				await update();
+			};
+		}}
+		class="form"
+	>
+		<div class="form-card card">
+			<h2 class="section-title">Preferencias de cálculo</h2>
+
+			<div class="field">
+				<label for="monthlyIncome" class="field-label">Ingreso mensual aproximado ($ MXN)</label>
+				<input
+					type="text"
+					inputmode="decimal"
+					id="monthlyIncome"
+					name="monthlyIncome"
+					bind:value={monthlyIncome}
+					placeholder="Ej. 18000"
+					class="input-field"
+				/>
+				<span class="field-hint">Sirve de referencia para calcular el % de ingresos que representa cada hábito.</span>
+			</div>
+
+			<div class="field">
+				<label for="monthStartDay" class="field-label">Día de inicio del mes contable</label>
+				<select
+					id="monthStartDay"
+					name="monthStartDay"
+					bind:value={monthStartDay}
+					class="input-field"
+				>
+					{#each Array.from({ length: 28 }, (_, i) => i + 1) as day}
+						<option value={day}>Día {day} de cada mes</option>
+					{/each}
+				</select>
+				<span class="field-hint">Útil si tu quincena o nómina cae los días 15 o 30.</span>
+			</div>
+
+			<div class="field">
+				<label for="currency" class="field-label">Moneda</label>
+				<input
+					type="text"
+					id="currency"
+					name="currency"
+					value={currency}
+					readonly
+					class="input-field readonly"
+				/>
+			</div>
+
+			<button type="submit" class="btn-primary w-full mt-2" disabled={saving}>
+				{saving ? 'Guardando...' : 'Guardar preferencias'}
+			</button>
+		</div>
+	</form>
+
+	<!-- Cerrar sesión -->
+	<div class="logout-section">
+		<form
+			method="post"
+			action="?/signOut"
+			use:enhance={() => {
+				loggingOut = true;
+			}}
+		>
+			<button type="submit" class="logout-btn" disabled={loggingOut}>
+				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+					<polyline points="16 17 21 12 16 7" />
+					<line x1="21" y1="12" x2="9" y2="12" />
+				</svg>
+				<span>{loggingOut ? 'Cerrando sesión...' : 'Cerrar sesión'}</span>
+			</button>
+		</form>
+	</div>
+</div>
+
+<style>
+	.settings-page {
+		padding-top: 0.5rem;
+	}
+
+	.header {
+		margin-bottom: 1.25rem;
+	}
+
+	.page-title {
+		font-size: 1.5rem;
+		font-weight: 800;
+		letter-spacing: -0.02em;
+	}
+
+	.subtitle {
+		font-size: 0.875rem;
+		color: var(--app-text-secondary);
+		margin-top: 0.25rem;
+	}
+
+	.success-banner {
+		padding: 0.75rem 1rem;
+		background: var(--color-primary-50);
+		color: var(--color-primary-700);
+		border-color: var(--color-primary-200);
+		font-size: 0.875rem;
+		font-weight: 600;
+		margin-bottom: 1.25rem;
+		text-align: center;
+	}
+
+	.profile-card {
+		display: flex;
+		align-items: center;
+		gap: 1rem;
+		padding: 1.25rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.avatar {
+		width: 3.25rem;
+		height: 3.25rem;
+		border-radius: 50%;
+		overflow: hidden;
+		background: var(--color-primary-500);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		color: white;
+		flex-shrink: 0;
+	}
+
+	.avatar-img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.avatar-initial {
+		font-size: 1.25rem;
+		font-weight: 700;
+	}
+
+	.profile-info {
+		min-width: 0;
+	}
+
+	.user-name {
+		display: block;
+		font-size: 1.0625rem;
+		font-weight: 700;
+	}
+
+	.user-email {
+		display: block;
+		font-size: 0.8125rem;
+		color: var(--app-text-secondary);
+		margin-top: 0.125rem;
+	}
+
+	.nav-card {
+		overflow: hidden;
+		margin-bottom: 1.25rem;
+	}
+
+	.nav-item {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		padding: 1rem 1.25rem;
+		text-decoration: none;
+		color: var(--app-text);
+		transition: background 150ms ease;
+
+		&:hover {
+			background: var(--color-surface-100);
+		}
+	}
+
+	.nav-left {
+		display: flex;
+		align-items: center;
+		gap: 0.875rem;
+	}
+
+	.nav-icon {
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: var(--radius-md);
+		background: var(--input-bg);
+		color: var(--app-text);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+	}
+
+	.nav-title {
+		display: block;
+		font-size: 0.9375rem;
+		font-weight: 600;
+	}
+
+	.nav-sub {
+		display: block;
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		margin-top: 0.125rem;
+	}
+
+	.chevron {
+		font-size: 1.25rem;
+		color: var(--app-text-secondary);
+	}
+
+	.divider {
+		height: 1px;
+		background: var(--app-border);
+		margin-left: 4.25rem;
+	}
+
+	.form-card {
+		padding: 1.25rem;
+		margin-bottom: 1.5rem;
+	}
+
+	.section-title {
+		font-size: 1rem;
+		font-weight: 700;
+		margin-bottom: 1.25rem;
+	}
+
+	.field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.375rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.field-label {
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--app-text);
+	}
+
+	.field-hint {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		line-height: 1.4;
+	}
+
+	.readonly {
+		opacity: 0.7;
+		cursor: default;
+	}
+
+	.logout-section {
+		text-align: center;
+		margin-top: 1rem;
+		margin-bottom: 2rem;
+	}
+
+	.logout-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		background: none;
+		border: 1px solid var(--app-border);
+		color: var(--color-danger-500);
+		font-size: 0.875rem;
+		font-weight: 600;
+		padding: 0.75rem 1.5rem;
+		border-radius: var(--radius-xl);
+		cursor: pointer;
+		transition: all 150ms ease;
+
+		&:hover {
+			background: var(--color-danger-50);
+		}
+	}
+
+	.w-full {
+		width: 100%;
+	}
+
+	.mt-2 {
+		margin-top: 0.5rem;
+	}
+</style>
