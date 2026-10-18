@@ -1,11 +1,5 @@
 import { fail } from '@sveltejs/kit';
-import {
-	getCategoriesByUser,
-	createCategory,
-	updateCategory,
-	deleteCategory,
-	categoryHasMovements
-} from '$lib/server/repos/categories.js';
+import { getCategoriesByUser, updateCategory } from '$lib/server/repos/categories.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -38,32 +32,16 @@ export const load = async (event) => {
 };
 
 export const actions = {
-	create: async (event) => {
-		const userId = event.locals.user.id;
-		const formData = await event.request.formData();
-		const name = formData.get('name')?.toString()?.trim();
-		const parentId = formData.get('parentId')?.toString()?.trim() || null;
-
-		if (!name) {
-			return fail(400, { error: 'El nombre de la categoría es obligatorio' });
-		}
-
-		await createCategory(userId, { name, parentId });
-		return { success: true };
+	create: async () => {
+		return fail(403, {
+			error: 'El catálogo de categorías es fijo y no admite nuevas categorías.'
+		});
 	},
 
-	rename: async (event) => {
-		const userId = event.locals.user.id;
-		const formData = await event.request.formData();
-		const id = formData.get('id')?.toString()?.trim();
-		const name = formData.get('name')?.toString()?.trim();
-
-		if (!id || !name) {
-			return fail(400, { error: 'Datos incompletos para renombrar' });
-		}
-
-		await updateCategory(userId, id, { name });
-		return { success: true };
+	rename: async () => {
+		return fail(403, {
+			error: 'El catálogo de categorías es fijo y no admite renombres.'
+		});
 	},
 
 	toggleFavorite: async (event) => {
@@ -90,21 +68,9 @@ export const actions = {
 		return { success: true };
 	},
 
-	delete: async (event) => {
-		const userId = event.locals.user.id;
-		const formData = await event.request.formData();
-		const id = formData.get('id')?.toString()?.trim();
-
-		if (!id) return fail(400, { error: 'ID faltante' });
-
-		const hasMovements = await categoryHasMovements(userId, id);
-		if (hasMovements) {
-			return fail(400, {
-				error: 'No se puede eliminar esta categoría porque tiene movimientos asociados. Puedes ocultarla en su lugar.'
-			});
-		}
-
-		await deleteCategory(userId, id);
-		return { success: true };
+	delete: async () => {
+		return fail(403, {
+			error: 'El catálogo de categorías es fijo y no admite eliminaciones.'
+		});
 	}
 };

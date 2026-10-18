@@ -23,7 +23,7 @@
 
 	let onlyTotal = $state(false);
 	let singleCategoryId = $state(
-		data.categories.find((c) => c.name.toLowerCase() === 'otros')?.id ||
+		data.categories.find((c) => !c.isSystem)?.id ||
 			data.categories[0]?.id ||
 			''
 	);
@@ -83,6 +83,46 @@
 		if (!file || file.size === 0) return;
 		isUploading = true;
 		e.target.form?.requestSubmit();
+	}
+
+	/**
+	 * Aprendizaje por corrección (punto 3 del frontend):
+	 * Al confirmar el ticket, envía al backend /api/item-corrections los ítems que
+	 * el usuario corrigió manualmente (ambiguos resueltos o descripción editada).
+	 * No bloquea el guardado del ticket si falla: el form action ?/guardar ya hace
+	 * su propio upsert en item_corrections como respaldo.
+	 */
+	async function persistUserCorrections() {
+		try {
+			const corrections = items
+				.filter((it) => {
+					if (!it.categoryId) return false;
+					const raw = (it.rawDescription || '').trim();
+					const current = (it.originalDescription || '').trim();
+					const wasAmbiguous = it.status === 'ambiguous';
+					const edited = raw && current && raw !== current;
+					return wasAmbiguous || edited || (it.itemCode || '').trim();
+				})
+				.map((it) => ({
+					itemCode: (it.itemCode || '').trim() || null,
+					store: (merchant || '').trim() || null,
+					rawDescription: (it.rawDescription || it.originalDescription || '').trim(),
+					correctedDescription: (it.originalDescription || '').trim(),
+					categoryId: (it.categoryId || '').trim(),
+					department: (it.department || '').trim() || null
+				}))
+				.filter((c) => c.rawDescription && c.correctedDescription && c.categoryId);
+
+			if (corrections.length === 0) return;
+
+			await fetch('/api/item-corrections', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ corrections })
+			});
+		} catch (err) {
+			console.error('[escanear] persistUserCorrections error:', err);
+		}
 	}
 </script>
 
@@ -254,7 +294,15 @@
 				action="?/guardar"
 				use:enhance={() => {
 					isSaving = true;
+					// Enviar correcciones manuales al endpoint de aprendizaje en paralelo
+					// (no bloquea el guardado; ?/guardar también hace upsert de respaldo).
+					const correctionsPromise = persistUserCorrections();
 					return async ({ update }) => {
+						try {
+							await correctionsPromise;
+						} catch (err) {
+							console.error('[escanear] corrections error:', err);
+						}
 						isSaving = false;
 						await update();
 					};
@@ -380,7 +428,8 @@
 												name="item_desc_{index}"
 												bind:value={item.originalDescription}
 												class="item-desc-input"
-												placeholder="Descripción del artículo"
+												placeholder={item.rawDescription || "Descripción del artículo"}
+												title={item.rawDescription && item.rawDescription !== item.originalDescription ? `Texto del ticket: ${item.rawDescription}` : "Descripción del artículo (editable)"}
 												required
 											/>
 											<div class="item-price-wrapper">
@@ -396,7 +445,13 @@
 											</div>
 										</div>
 
-										<div class="item-category-row">
+										<div class="item-meta-row">
+										{#if item.department}<span class="meta-chip meta-dept" title="Departamento detectado en el ticket">{item.department}</span>{/if}
+										{#if item.itemCode}<span class="meta-chip meta-code" title="Código EAN/UPC del ticket">{item.itemCode}</span>{/if}
+										{#if item.rawDescription && item.rawDescription !== item.originalDescription}<span class="meta-raw" title="Texto exacto del ticket">Ticket: {item.rawDescription}</span>{/if}
+									</div>
+
+									<div class="item-category-row">
 											<div class="cat-picker-container">
 												<select
 													name="item_cat_{index}"
@@ -417,6 +472,9 @@
 										</div>
 
 										<input type="hidden" name="item_status_{index}" value={item.status} />
+									<input type="hidden" name="item_raw_{index}" value={item.rawDescription || ''} />
+									<input type="hidden" name="item_code_{index}" value={item.itemCode || ''} />
+									<input type="hidden" name="item_dept_{index}" value={item.department || ''} />
 									</div>
 								{/each}
 							</div>
@@ -804,6 +862,39 @@
 		text-align: right;
 		outline: none;
 		font-variant-numeric: tabular-nums;
+	}
+
+	.item-meta-row {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.375rem;
+	}
+
+	.meta-chip {
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		padding: 0.125rem 0.4375rem;
+		border-radius: var(--radius-sm);
+	}
+
+	.meta-dept {
+		background: var(--color-accent-50);
+		color: var(--color-accent-800);
+		border: 1px solid var(--color-accent-300);
+	}
+
+	.meta-code {
+		background: var(--input-bg);
+		color: var(--app-text-secondary);
+		border: 1px dashed var(--app-border);
+	}
+
+	.meta-raw {
+		font-size: 0.6875rem;
+		color: var(--app-text-secondary);
 	}
 
 	.item-category-row {

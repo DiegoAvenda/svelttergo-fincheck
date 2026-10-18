@@ -201,4 +201,54 @@ test('Ticket discount merging (rebajas no son items)', async (t) => {
 		assert.equal(isDiscountLine('Descuento aplicado'), true);
 		assert.equal(isDiscountLine('MARUCHAN VA'), false);
 	});
+
+	await t.test('preserva itemCode, raw/clean y departamento del nuevo formato IA', () => {
+		const result = normalizeTicketItems([
+			{
+				itemCode: '7506495069520',
+				rawDescription: 'PLC AU DES',
+				cleanDescription: 'Producto Lácteo Deslactosado Aurrera',
+				department: 'LACTEOS',
+				amount: 16,
+				status: 'identified'
+			}
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].itemCode, '7506495069520');
+		assert.equal(result[0].rawDescription, 'PLC AU DES');
+		assert.equal(result[0].cleanDescription, 'Producto Lácteo Deslactosado Aurrera');
+		assert.equal(result[0].originalDescription, 'Producto Lácteo Deslactosado Aurrera');
+		assert.equal(result[0].department, 'LACTEOS');
+		assert.equal(result[0].status, 'identified');
+	});
+
+	await t.test('preserva status ambiguous cuando ni el departamento aclara el producto', () => {
+		const result = normalizeTicketItems([
+			{
+				itemCode: '7506495069520',
+				rawDescription: 'PLC AU DES',
+				cleanDescription: 'PLC AU DES',
+				department: 'LACTEOS',
+				amount: 16,
+				status: 'ambiguous'
+			}
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].status, 'ambiguous');
+		assert.equal(result[0].cleanDescription, 'PLC AU DES');
+	});
+
+	await t.test('acepta price como alias de amount (compat formato tarea)', () => {
+		const result = normalizeTicketItems([
+			{
+				itemCode: '7506495069520',
+				rawDescription: 'PLC AU DES',
+				cleanDescription: 'Producto Lácteo Deslactosado Aurrera',
+				price: 16.0,
+				status: 'identified'
+			}
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].amount, 16);
+	});
 });

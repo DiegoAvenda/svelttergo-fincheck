@@ -82,6 +82,95 @@ export async function deleteCategory(userId, id) {
 }
 
 /**
+ * Asegura el catálogo fijo para un usuario existente (auto-migración idempotente).
+ * Se ejecuta sola al entrar a la app: crea las fijas que falten, reasigna
+ * movimientos/ítems/memoria/correcciones desde categorías legacy
+ * (Comida, Supermercado, Bebidas, Chocolates, Agua, Otros...) a su fija
+ * equivalente y elimina las legacy que queden huérfanas.
+ * Nunca borra categorías con movimientos ni la de sistema "Sin clasificar".
+ * @param {string} userId
+ * @returns {Promise<{ created: number, reassigned: number, removed: number }>}
+ */
+export async function ensureFixedCategories(userId) {
+	const {
+		FIXED_CATEGORIES,
+		SYSTEM_CATEGORY_UNCLASSIFIED,
+		normalizeCategoryName,
+		mapLegacyToFixed
+	} = await import('$lib/server/defaults/categories.js');
+	const db = await getDb();
+
+	const cats = await db.collection('categories').find({ userId }).toArray();
+	const stats = { created: 0, reassigned: 0, removed: 0 };
+
+	// Usuario nuevo: el onboarding (bienvenida) hace el seed completo.
+	if (cats.length === 0) return stats;
+
+	const byNorm = new Map(cats.map((c) => [normalizeCategoryName(c.name), c]));
+
+	// 1. Asegurar sistema + 17 fijas (sin duplicar, tolerando acentos/caso).
+	const fixedNames = [...FIXED_CATEGORIES.map((c) => c.name), SYSTEM_CATEGORY_UNCLASSIFIED];
+	for (const name of fixedNames) {
+		if (!byNorm.has(normalizeCategoryName(name))) {
+			const res = await db.collection('categories').insertOne({
+				userId,
+				name,
+				parentId: null,
+				isFavorite: false,
+				isHidden: false,
+				isSystem: name === SYSTEM_CATEGORY_UNCLASSIFIED,
+				createdAt: new Date()
+			});
+			byNorm.set(normalizeCategoryName(name), { _id: res.insertedId, name });
+			stats.created++;
+		}
+	}
+
+	const fixedSet = new Set(FIXED_CATEGORIES.map((c) => normalizeCategoryName(c.name)));
+	const systemNorm = normalizeCategoryName(SYSTEM_CATEGORY_UNCLASSIFIED);
+
+	// 2-3. Reasignar legacy -> fija y borrar huérfanas.
+	for (const cat of cats) {
+		const n = normalizeCategoryName(cat.name);
+		if (cat.isSystem || n === systemNorm || fixedSet.has(n)) continue;
+		const targetName = mapLegacyToFixed(cat.name);
+		const target = byNorm.get(normalizeCategoryName(targetName));
+		if (!target || target._id.toString() === cat._id.toString()) continue;
+
+		const { ObjectId } = await import('mongodb');
+		const targetId = target._id instanceof ObjectId ? target._id : new ObjectId(target._id);
+		const legacyId = cat._id instanceof ObjectId ? cat._id : new ObjectId(cat._id);
+
+		const m1 = await db
+			.collection('movements')
+			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
+		const m2 = await db.collection('movements').updateMany(
+			{ userId, 'items.categoryId': legacyId },
+			{ $set: { 'items.$[el].categoryId': targetId } },
+			{ arrayFilters: [{ 'el.categoryId': legacyId }] }
+		);
+		const m3 = await db
+			.collection('classification_memory')
+			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
+		const m4 = await db
+			.collection('item_corrections')
+			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
+		stats.reassigned += m1.modifiedCount + m2.modifiedCount + m3.modifiedCount + m4.modifiedCount;
+
+		const remaining = await db.collection('movements').countDocuments({
+			userId,
+			$or: [{ categoryId: legacyId }, { 'items.categoryId': legacyId }]
+		});
+		if (remaining === 0) {
+			await db.collection('categories').deleteOne({ _id: legacyId, userId });
+			stats.removed++;
+		}
+	}
+
+	return stats;
+}
+
+/**
  * Verifica si una categoría tiene movimientos asociados.
  * @param {string} userId
  * @param {string} categoryId

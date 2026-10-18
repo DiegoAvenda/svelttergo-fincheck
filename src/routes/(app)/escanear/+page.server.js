@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { createMovement } from '$lib/server/repos/movements.js';
 import { upsertClassification } from '$lib/server/repos/classification-memory.js';
+import { upsertItemCorrection } from '$lib/server/repos/item-corrections.js';
 import { parseTicketImage } from '$lib/server/tickets/parse-ticket.js';
 import { classifyItems } from '$lib/server/tickets/classify-items.js';
 import { normalizeDescription } from '$lib/utils/normalize-description.js';
@@ -13,8 +14,17 @@ export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const categories = await getVisibleCategories(userId);
 
+	// Blindaje UI: el dropdown solo muestra el catálogo fijo (17 + sistema),
+	// aunque la BD aún tenga legacy. La auto-migración del layout las limpia.
+	const { normalizeCategoryName, fixedCatalogNames } = await import(
+		'$lib/server/defaults/categories.js'
+	);
+	const allowed = new Set(fixedCatalogNames().map((n) => normalizeCategoryName(n)));
+	const fixedOnly = categories.filter((c) => allowed.has(normalizeCategoryName(c.name)));
+	const visible = fixedOnly.length > 0 ? fixedOnly : categories;
+
 	return {
-		categories: categories.map((c) => ({
+		categories: visible.map((c) => ({
 			id: c._id.toString(),
 			name: c.name,
 			parentId: c.parentId ? c.parentId.toString() : null,
@@ -73,12 +83,18 @@ export const actions = {
 		// 2. Obtener categorías del usuario para clasificar
 		const rawCategories = await getVisibleCategories(userId);
 
-		// 3. Clasificar artículos (memoria + IA)
-		const classifiedItems = await classifyItems(userId, parseResult.data.items, rawCategories);
+		// 3. Clasificar artículos (memoria + correcciones + IA), con la tienda como contexto
+		const classifiedItems = await classifyItems(userId, parseResult.data.items, rawCategories, {
+			store: parseResult.data.merchant
+		});
 
-		// Mapear para la UI
+		// Mapear para la UI (la descripción ya es editable; se envían raw + itemCode ocultos)
 		const itemsForUi = classifiedItems.map((item) => ({
+			itemCode: item.itemCode || '',
+			rawDescription: item.rawDescription || item.originalDescription || '',
+			cleanDescription: item.cleanDescription || item.originalDescription || '',
 			originalDescription: item.originalDescription,
+			department: item.department || '',
 			amountCents: item.amountCents,
 			categoryId: item.categoryId ? item.categoryId.toString() : '',
 			status: item.status
@@ -121,10 +137,9 @@ export const actions = {
 			if (singleCategoryStr) {
 				categoryId = new ObjectId(singleCategoryStr);
 			} else {
-				// Buscar categoría "Otros" por defecto
-				const allCats = await getVisibleCategories(userId);
-				const otros = allCats.find((c) => c.name.toLowerCase() === 'otros');
-				if (otros) categoryId = otros._id;
+				// Sin categoría elegida: cae a "Sin clasificar" (categoryId null).
+				// El sistema muestra null como pendiente de revisión.
+				categoryId = null;
 			}
 
 			const result = await createMovement(userId, {
@@ -148,6 +163,9 @@ export const actions = {
 
 		for (let i = 0; i < itemsCount; i++) {
 			const desc = formData.get(`item_desc_${i}`)?.toString()?.trim() || '';
+			const rawDesc = formData.get(`item_raw_${i}`)?.toString()?.trim() || desc;
+			const itemCode = formData.get(`item_code_${i}`)?.toString()?.trim() || null;
+			const department = formData.get(`item_dept_${i}`)?.toString()?.trim() || null;
 			const amtStr = formData.get(`item_amount_${i}`)?.toString()?.trim() || '';
 			const catStr = formData.get(`item_cat_${i}`)?.toString()?.trim() || '';
 			const status = formData.get(`item_status_${i}`)?.toString() || 'identified';
@@ -159,8 +177,12 @@ export const actions = {
 			const normalized = normalizeDescription(desc);
 
 			finalItems.push({
+				itemCode,
+				rawDescription: rawDesc,
+				cleanDescription: desc,
 				originalDescription: desc,
 				normalizedDescription: normalized,
+				department,
 				amountCents: amtCents,
 				categoryId: catId,
 				status: catId ? 'identified' : status
@@ -169,6 +191,27 @@ export const actions = {
 			// Upsert en la memoria de clasificación para artículos confirmados
 			if (catId && normalized) {
 				await upsertClassification(userId, normalized, catId);
+			}
+
+			// Aprendizaje por corrección: si el usuario editó la descripción o resolvió
+			// un ítem ambiguo/sin categoría, persistir en item_corrections (upsert por
+			// itemCode, o por store + rawDescription) para futuras compras.
+			const wasAmbiguous = status === 'ambiguous' || !catStr;
+			const userEditedDescription =
+				normalizeDescription(rawDesc) !== normalized && rawDesc !== desc;
+			if (catId && (wasAmbiguous || userEditedDescription || itemCode)) {
+				try {
+					await upsertItemCorrection(userId, {
+						itemCode,
+						store: merchant,
+						rawDescription: rawDesc,
+						correctedDescription: desc,
+						categoryId: catId,
+						department
+					});
+				} catch (err) {
+					console.error('[guardar] upsertItemCorrection error:', err);
+				}
 			}
 		}
 

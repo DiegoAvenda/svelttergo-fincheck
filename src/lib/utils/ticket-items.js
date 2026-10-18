@@ -2,13 +2,16 @@
  * Normalización post-IA de items de ticket.
  * Fusiona líneas de descuento/rebaja con el artículo previo
  * para que nunca aparezcan como items separados.
+ * Preserva los campos nuevos de la IA: itemCode (EAN/UPC), rawDescription
+ * (texto exacto), cleanDescription (expandida con departamento), department,
+ * categoryId sugerido y status identified|ambiguous|pending.
  *
  * Caso Bodega Aurrera / Walmart / Soriana:
  *   "MARUCHAN VA 18.00 x 1" + "Rebaja 1X$14 -4.00 x 1 14.00"
  *   => [{ originalDescription: "MARUCHAN VA", amount: 14 }]
  *
- * @param {Array<{ originalDescription: string, amount: number, status?: string }>} rawItems
- * @returns {Array<{ originalDescription: string, amount: number, status: string }>}
+ * @param {Array<{ originalDescription?: string, rawDescription?: string, cleanDescription?: string, itemCode?: string|null, department?: string|null, categoryId?: string|null, amount?: number, price?: number, status?: string }>} rawItems
+ * @returns {Array<{ itemCode: string|null, rawDescription: string, cleanDescription: string, originalDescription: string, department: string|null, categoryId: string|null, amount: number, status: string }>}
  */
 export function normalizeTicketItems(rawItems) {
 	if (!Array.isArray(rawItems)) return [];
@@ -22,16 +25,25 @@ export function normalizeTicketItems(rawItems) {
 
 	const round2 = (n) => Math.round(n * 100) / 100;
 
-	/** @type {Array<{ originalDescription: string, amount: number, status: string }>} */
+	/** @type {Array<{ itemCode: string|null, rawDescription: string, cleanDescription: string, originalDescription: string, department: string|null, categoryId: string|null, amount: number, status: string }>} */
 	const merged = [];
 
 	for (const raw of rawItems) {
-		const desc = (raw?.originalDescription || '').trim();
+		const rawDesc = (raw?.rawDescription || raw?.originalDescription || '').trim();
+		const cleanDesc = (raw?.cleanDescription || raw?.originalDescription || rawDesc || '').trim();
+		const desc = cleanDesc || rawDesc;
 		let amount = Number(raw?.amount);
+		if (Number.isNaN(amount) || !Number.isFinite(amount)) {
+			const price = Number(raw?.price);
+			amount = Number.isFinite(price) ? price : 0;
+		}
 		if (!desc) continue;
 		if (!Number.isFinite(amount)) amount = 0;
 		amount = round2(amount);
-		const status = raw?.status === 'ambiguous' ? 'ambiguous' : 'identified';
+		const status = raw?.status === 'ambiguous' ? 'ambiguous' : raw?.status === 'pending' ? 'pending' : 'identified';
+		const itemCode = (raw?.itemCode || '').toString().trim() || null;
+		const department = (raw?.department || '').toString().trim() || null;
+		const categoryId = (raw?.categoryId || '').toString().trim() || null;
 
 		// 1. Descartar encabezados / resúmenes aunque la IA los haya incluido.
 		if (NON_ITEM_RE.test(desc) || /-{4,}/.test(desc)) continue;
@@ -91,7 +103,16 @@ export function normalizeTicketItems(rawItems) {
 			continue;
 		}
 
-		merged.push({ originalDescription: desc, amount, status });
+		merged.push({
+			itemCode,
+			rawDescription: rawDesc || desc,
+			cleanDescription: cleanDesc || desc,
+			originalDescription: desc,
+			department,
+			categoryId,
+			amount,
+			status
+		});
 	}
 
 	return merged;

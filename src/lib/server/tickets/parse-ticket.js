@@ -5,35 +5,69 @@ import { pesosToCents } from '$lib/utils/money.js';
 import { normalizeTicketItems } from '$lib/utils/ticket-items.js';
 import { callOpenRouter, extractJson, openRouterErrorMessage } from '$lib/server/ai/openrouter.js';
 
+const ticketItemSchema = z
+	.object({
+		// Nuevo formato con contexto por departamento
+		itemCode: z.string().nullish().transform((v) => (v || '').trim() || null),
+		rawDescription: z.string().nullish(),
+		cleanDescription: z.string().nullish(),
+		department: z.string().nullish().transform((v) => (v || '').trim() || null),
+		// Compat: formato anterior
+		originalDescription: z.string().nullish(),
+		amount: z.coerce.number().default(0),
+		price: z.coerce.number().nullish(),
+		categoryId: z.string().nullish(),
+		status: z
+			.string()
+			.nullish()
+			.transform((val) => {
+				const lower = (val || '').toLowerCase();
+				if (lower === 'identified' || lower === 'ambiguous' || lower === 'pending') {
+					return lower;
+				}
+				return 'identified';
+			})
+	})
+	.transform((v) => {
+		const raw = (v.rawDescription || '').trim();
+		const clean = (v.cleanDescription || '').trim();
+		const legacy = (v.originalDescription || '').trim();
+		// rawDescription: texto exacto del ticket; cleanDescription: versión expandida con departamento.
+		const finalRaw = raw || legacy || 'Artículo';
+		const finalClean = clean || legacy || finalRaw;
+		const finalAmount = Number.isFinite(Number(v.amount)) && Number(v.amount) !== 0
+			? Number(v.amount)
+			: Number.isFinite(Number(v.price))
+				? Number(v.price)
+				: 0;
+		return {
+			itemCode: v.itemCode || null,
+			rawDescription: finalRaw,
+			cleanDescription: finalClean,
+			// Por compatibilidad, originalDescription = cleanDescription (lo que ve/edita el usuario).
+			originalDescription: finalClean || finalRaw,
+			department: v.department || null,
+			amount: finalAmount,
+			categoryId: v.categoryId?.trim() || null,
+			status: v.status
+		};
+	});
+
 const parsedTicketSchema = z.object({
 	merchant: z.string().nullable().optional(),
 	date: z.string().nullable().optional(),
 	total: z.coerce.number().default(0),
-	items: z
-		.array(
-			z.object({
-				originalDescription: z.string().nullish().transform((v) => (v || '').trim() || 'Artículo'),
-				amount: z.coerce.number().default(0),
-				status: z
-					.string()
-					.nullish()
-					.transform((val) => {
-						const lower = (val || '').toLowerCase();
-						if (lower === 'identified' || lower === 'ambiguous' || lower === 'pending') {
-							return lower;
-						}
-						return 'identified';
-					})
-			})
-		)
-		.default([])
+	items: z.array(ticketItemSchema).default([])
 });
 
 /**
- * Parsea la imagen de un ticket con la API de Anthropic.
+ * Parsea la imagen de un ticket con la API de Anthropic / OpenRouter (visión).
+ * La IA devuelve por ítem: itemCode (EAN/UPC), rawDescription (texto exacto del ticket),
+ * cleanDescription (versión expandida usando el departamento como contexto),
+ * department (encabezado de sección vigente), amount/price y status identified|ambiguous.
  * @param {Buffer} imageBuffer - Buffer binario de la imagen
  * @param {string} mimeType - 'image/jpeg' | 'image/png' | 'image/webp'
- * @returns {Promise<{ success: true, data: { merchant: string|null, date: string|null, totalCents: number, items: Array<{ originalDescription: string, amountCents: number, status: 'identified'|'ambiguous'|'pending' }> } } | { success: false, error: string }>}
+ * @returns {Promise<{ success: true, data: { merchant: string|null, date: string|null, totalCents: number, items: Array<{ itemCode: string|null, rawDescription: string, cleanDescription: string, originalDescription: string, department: string|null, amountCents: number, status: 'identified'|'ambiguous'|'pending', categoryId: string|null }> } } | { success: false, error: string }>}
  */
 export async function parseTicketImage(imageBuffer, mimeType) {
 	const openRouterKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
@@ -73,7 +107,7 @@ export async function parseTicketImage(imageBuffer, mimeType) {
 						content: [
 							{
 								type: 'text',
-								text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"originalDescription": string, "amount": number, "status": "identified|ambiguous"}]}.'
+								text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Detecta encabezados de departamento (LACTEOS, ABARROTES BASICOS, ABARROTES PROCESADOS, etc.) y úsalos como contexto para expandir abreviaturas; extrae el código EAN/UPC previo al nombre en itemCode cuando aparezca. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"itemCode": string|null, "rawDescription": string, "cleanDescription": string, "department": string|null, "amount": number, "status": "identified|ambiguous"}]}. Si el producto no es claro ni con el departamento, usa status ambiguous con cleanDescription igual a rawDescription..'
 							},
 							{ type: 'image_url', image_url: { url: dataUrl } }
 						]
@@ -126,8 +160,13 @@ export async function parseTicketImage(imageBuffer, mimeType) {
 		const totalCents = pesosToCents(data.total);
 		const normalizedItems = normalizeTicketItems(data.items);
 		const items = normalizedItems.map((item) => ({
-			originalDescription: item.originalDescription.trim(),
+			itemCode: item.itemCode || null,
+			rawDescription: (item.rawDescription || item.originalDescription || '').trim(),
+			cleanDescription: (item.cleanDescription || item.originalDescription || '').trim(),
+			originalDescription: (item.originalDescription || '').trim(),
+			department: item.department || null,
 			amountCents: pesosToCents(item.amount),
+			categoryId: item.categoryId || null,
 			status: item.status
 		}));
 
@@ -164,7 +203,7 @@ async function callAnthropicVision(apiKey, base64Data, mediaType) {
 					{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
 					{
 						type: 'text',
-						text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"originalDescription": string, "amount": number, "status": "identified|ambiguous"}]}.'
+						text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Detecta encabezados de departamento (LACTEOS, ABARROTES BASICOS, ABARROTES PROCESADOS, etc.) y úsalos como contexto para expandir abreviaturas; extrae el código EAN/UPC previo al nombre en itemCode cuando aparezca. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"itemCode": string|null, "rawDescription": string, "cleanDescription": string, "department": string|null, "amount": number, "status": "identified|ambiguous"}]}. Si el producto no es claro ni con el departamento, usa status ambiguous con cleanDescription igual a rawDescription..'
 					}
 				]
 			}

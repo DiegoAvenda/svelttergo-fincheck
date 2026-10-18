@@ -1,0 +1,70 @@
+# .clineignore - controla que archivos Cline carga automaticamente.
+# Sintaxis .gitignore. NOTA: no es un boundary de seguridad por si solo;
+# el hook PreToolUse (.clinerules/hooks/PreToolUse + .cline/hooks/PreToolUse.sh)
+# lo convierte en un bloqueo real de lectura/edicion/shell.
+#
+# --- Dependencies (casi siempre excluir) ---
+node_modules/
+**/node_modules/
+.pnpm-store/
+#
+# --- Build outputs SvelteKit / Vite / deploy ---
+.svelte-kit/
+build/
+dist/
+.next/
+out/
+.output/
+.vercel/
+.netlify/
+.wrangler/
+vite.config.js.timestamp-*
+vite.config.ts.timestamp-*
+#
+# --- Testing artifacts ---
+coverage/
+#
+# --- OS ---
+.DS_Store
+Thumbs.db
+#
+# --- Env / secrets (mantener .env.example legible) ---
+.env
+.env.*
+!.env.example
+!.env.test
+*.pem
+secrets/
+#
+# --- Lockfiles grandes (innecesarios para contexto) ---
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+bun.lock
+bun.lockb
+#
+# --- Data files grandes ---
+*.csv
+*.xlsx
+*.sqlite
+*.parquet
+#
+# --- Generados / minificados ---
+*.min.js
+*.map
+#
+# --- Binarios ---
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.ico
+*.mp4
+*.mov
+*.pdf
+*.woff
+*.woff2
+*.ttf
+*.otf
+
