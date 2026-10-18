@@ -27,7 +27,11 @@ export const actions = {
 	procesar: async (event) => {
 		const userId = event.locals.user.id;
 		const formData = await event.request.formData();
-		const file = formData.get('image');
+		// El form tiene 2 inputs (cámara y galería) con distinto name: tomar el que sí trae archivo.
+		const file =
+			formData.get('image') instanceof File && formData.get('image').size > 0
+				? formData.get('image')
+				: formData.get('image_galeria');
 
 		if (!file || !(file instanceof File) || file.size === 0) {
 			return fail(400, {
@@ -45,7 +49,10 @@ export const actions = {
 
 		// Validar tipo de imagen
 		const validTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/jpg'];
-		if (!validTypes.includes(file.type.toLowerCase()) && !file.name.match(/\.(jpg|jpeg|png|webp|heic)$/i)) {
+		if (
+			!validTypes.includes(file.type.toLowerCase()) &&
+			!file.name.match(/\.(jpg|jpeg|png|webp|heic)$/i)
+		) {
 			return fail(400, {
 				error: 'Formato no soportado. Sube una imagen en formato JPG, PNG o WebP.'
 			});

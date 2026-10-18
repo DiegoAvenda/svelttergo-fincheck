@@ -1,9 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { env } from '$env/dynamic/private';
 import { normalizeDescription } from '$lib/utils/normalize-description.js';
 import { findClassification } from '$lib/server/repos/classification-memory.js';
 import { TICKET_CLASSIFIER_SYSTEM_PROMPT } from './prompts.js';
+import { callOpenRouter, extractJson } from '$lib/server/ai/openrouter.js';
 
 const itemClassificationSchema = z.array(
 	z.object({
@@ -40,7 +40,11 @@ export async function classifyItems(userId, items, categories) {
 		const normalized = normalizeDescription(item.originalDescription);
 
 		const remembered = await findClassification(userId, normalized);
-		if (remembered && remembered.categoryId && validCategoryIds.has(remembered.categoryId.toString())) {
+		if (
+			remembered &&
+			remembered.categoryId &&
+			validCategoryIds.has(remembered.categoryId.toString())
+		) {
 			results[i] = {
 				originalDescription: item.originalDescription,
 				normalizedDescription: normalized,
@@ -65,41 +69,44 @@ export async function classifyItems(userId, items, categories) {
 		return results;
 	}
 
-	// Paso 2: Consultar a Anthropic para los restantes
-	const apiKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-	if (!apiKey) {
+	// Paso 2: Consultar a la IA (OpenRouter free, fallback Anthropic) para los restantes
+	const openRouterKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
+	const anthropicKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+	if (!openRouterKey && !anthropicKey) {
 		// Degradación elegante: quedan como pendientes
 		return results;
 	}
 
 	try {
-		const model = env.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
-		const anthropic = new Anthropic({ apiKey });
-
 		const catalogList = categories.map((c) => ({ id: c._id.toString(), name: c.name }));
 
 		const prompt = `Catálogo de categorías disponibles:
 ${JSON.stringify(catalogList, null, 2)}
 
 Artículos a clasificar:
-${JSON.stringify(pendingForAi.map((p) => ({ index: p.index, description: p.description })), null, 2)}
+${JSON.stringify(
+	pendingForAi.map((p) => ({ index: p.index, description: p.description })),
+	null,
+	2
+)}
 
 Devuelve un JSON array con objetos: { "index": number, "categoryId": string | null, "status": "identified" | "ambiguous" | "pending" }`;
 
-		const response = await anthropic.messages.create({
-			model,
-			max_tokens: 1024,
-			system: TICKET_CLASSIFIER_SYSTEM_PROMPT,
-			messages: [{ role: 'user', content: prompt }]
-		});
+		let text = '';
+		if (openRouterKey) {
+			const result = await callOpenRouter({
+				system: TICKET_CLASSIFIER_SYSTEM_PROMPT,
+				max_tokens: 1024,
+				temperature: 0.1,
+				messages: [{ role: 'user', content: prompt }]
+			});
+			text = result.text;
+		} else {
+			text = await callAnthropicClassifier(anthropicKey, prompt);
+		}
 
-		const textBlock = response.content.find((b) => b.type === 'text');
-		if (textBlock?.text) {
-			let jsonText = textBlock.text.trim();
-			const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-			if (match) jsonText = match[1].trim();
-
-			const raw = JSON.parse(jsonText);
+		if (text) {
+			const raw = extractJson(text);
 			const validation = itemClassificationSchema.safeParse(raw);
 
 			if (validation.success) {
@@ -122,4 +129,18 @@ Devuelve un JSON array con objetos: { "index": number, "categoryId": string | nu
 	}
 
 	return results;
+}
+
+async function callAnthropicClassifier(apiKey, prompt) {
+	const { default: Anthropic } = await import('@anthropic-ai/sdk');
+	const model = env.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+	const anthropic = new Anthropic({ apiKey });
+	const response = await anthropic.messages.create({
+		model,
+		max_tokens: 1024,
+		system: TICKET_CLASSIFIER_SYSTEM_PROMPT,
+		messages: [{ role: 'user', content: prompt }]
+	});
+	const block = response.content.find((b) => b.type === 'text');
+	return block?.text || '';
 }

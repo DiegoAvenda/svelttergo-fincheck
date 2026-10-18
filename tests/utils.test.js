@@ -13,6 +13,11 @@ import {
 } from '../src/lib/utils/normalize-description.js';
 
 import {
+	normalizeTicketItems,
+	isDiscountLine
+} from '../src/lib/utils/ticket-items.js';
+
+import {
 	getMonthRange,
 	getPreviousMonthRange,
 	getLastNMonthsRange,
@@ -140,5 +145,60 @@ test('Period calculation with Mexico City timezone and start day', async (t) => 
 
 		const yesterday = new Date(today.getTime() - 86400000);
 		assert.equal(formatDayGroup(yesterday), 'Ayer');
+	});
+});
+
+test('Ticket discount merging (rebajas no son items)', async (t) => {
+	await t.test('fusiona Rebaja con precio final repetido: MARUCHAN 18 + Rebaja 14 => 14', () => {
+		const result = normalizeTicketItems([
+			{ originalDescription: 'MARUCHAN VA', amount: 18, status: 'identified' },
+			{ originalDescription: 'Rebaja 1X$14 -4.00 x 1', amount: 14, status: 'identified' }
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].originalDescription, 'MARUCHAN VA');
+		assert.equal(result[0].amount, 14);
+	});
+
+	await t.test('fusiona Rebaja con monto negativo', () => {
+		const result = normalizeTicketItems([
+			{ originalDescription: 'COCA COLA 600ML', amount: 20, status: 'identified' },
+			{ originalDescription: 'Descuento', amount: -4, status: 'identified' }
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].amount, 16);
+	});
+
+	await t.test('la rebaja duplicada no aumenta el precio del item previo', () => {
+		const result = normalizeTicketItems([
+			{ originalDescription: 'SABRITAS 45G', amount: 18, status: 'identified' },
+			{ originalDescription: 'Rebaja x 1', amount: 18, status: 'identified' }
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].amount, 18);
+	});
+
+	await t.test('la rebaja con -4.00 explicito siempre descuenta aunque amount repita el final', () => {
+		const result = normalizeTicketItems([
+			{ originalDescription: 'SABRITAS 45G', amount: 18, status: 'identified' },
+			{ originalDescription: 'Rebaja 1X$14 -4.00 x 1', amount: 18, status: 'identified' }
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].amount, 14);
+	});
+
+	await t.test('descarta encabezados y totales aunque la IA los incluya', () => {
+		const result = normalizeTicketItems([
+			{ originalDescription: 'ABARROTES BASICOS--------', amount: 0, status: 'identified' },
+			{ originalDescription: 'MARUCHAN VA', amount: 14, status: 'identified' },
+			{ originalDescription: 'ARTICULOS COMPRADOS: 5', amount: 0, status: 'identified' }
+		]);
+		assert.equal(result.length, 1);
+		assert.equal(result[0].originalDescription, 'MARUCHAN VA');
+	});
+
+	await t.test('isDiscountLine detecta variantes', () => {
+		assert.equal(isDiscountLine('Rebaja 1X$14 -4.00 x 1'), true);
+		assert.equal(isDiscountLine('Descuento aplicado'), true);
+		assert.equal(isDiscountLine('MARUCHAN VA'), false);
 	});
 });

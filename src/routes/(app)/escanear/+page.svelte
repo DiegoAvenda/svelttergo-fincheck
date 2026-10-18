@@ -12,13 +12,21 @@
 	// Campos del borrador
 	let merchant = $state(form?.draft?.merchant ?? '');
 	let date = $state(form?.draft?.date ?? '');
-	let totalPesos = $state(form?.draft?.totalCents ? String(centsToPesos(form?.draft?.totalCents)) : '');
+	let totalPesos = $state(
+		form?.draft?.totalCents ? String(centsToPesos(form?.draft?.totalCents)) : ''
+	);
 	let items = $state(
-		form?.draft?.items ? form.draft.items.map((it) => ({ ...it, amountPesos: String(centsToPesos(it.amountCents)) })) : []
+		form?.draft?.items
+			? form.draft.items.map((it) => ({ ...it, amountPesos: String(centsToPesos(it.amountCents)) }))
+			: []
 	);
 
 	let onlyTotal = $state(false);
-	let singleCategoryId = $state(data.categories.find((c) => c.name.toLowerCase() === 'otros')?.id || data.categories[0]?.id || '');
+	let singleCategoryId = $state(
+		data.categories.find((c) => c.name.toLowerCase() === 'otros')?.id ||
+			data.categories[0]?.id ||
+			''
+	);
 
 	// Actualizar estado si llega un draft del form
 	$effect(() => {
@@ -69,6 +77,13 @@
 	function triggerUpload() {
 		fileInputRef?.click();
 	}
+
+	function handleFileChange(e) {
+		const file = e.target.files?.[0];
+		if (!file || file.size === 0) return;
+		isUploading = true;
+		e.target.form?.requestSubmit();
+	}
 </script>
 
 <svelte:head>
@@ -78,7 +93,14 @@
 <div class="scan-page">
 	<div class="top-bar">
 		<a href="/" class="back-link" aria-label="Volver a inicio">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -93,14 +115,21 @@
 				<div class="error-card card">
 					<p class="error-text">{form.error}</p>
 					{#if form.canManual}
-						<a href="/registrar" class="btn-primary w-full mt-2">Registrar manualmente</a>
+						<a href="/registrar" class="mt-2 btn-primary w-full">Registrar manualmente</a>
 					{/if}
 				</div>
 			{/if}
 
 			<div class="hero-box card">
 				<div class="hero-icon">
-					<svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+					<svg
+						width="44"
+						height="44"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"
+					>
 						<rect x="3" y="3" width="18" height="18" rx="2" />
 						<line x1="7" y1="8" x2="17" y2="8" />
 						<line x1="7" y1="12" x2="17" y2="12" />
@@ -109,7 +138,8 @@
 				</div>
 				<h2 class="hero-title">Captura tu recibo de compra</h2>
 				<p class="hero-desc">
-					La IA leerá el comercio, la fecha, el total y clasificará cada artículo automáticamente en tus hábitos.
+					La IA leerá el comercio, la fecha, el total y clasificará cada artículo automáticamente en
+					tus hábitos.
 				</p>
 
 				<!-- Formulario oculto de carga con input con capture -->
@@ -134,30 +164,46 @@
 						accept="image/*"
 						capture="environment"
 						class="hidden-input"
-						onchange={(e) => e.target.form?.requestSubmit()}
+						onchange={handleFileChange}
 					/>
 
 					<!-- Input general para galería o archivo -->
 					<input
 						bind:this={fileInputRef}
 						type="file"
-						name="image"
+						name="image_galeria"
 						accept="image/jpeg,image/png,image/webp,image/heic"
 						class="hidden-input"
-						onchange={(e) => e.target.form?.requestSubmit()}
+						onchange={handleFileChange}
 					/>
 
 					<div class="action-buttons">
-						<button type="button" class="btn-primary action-large" onclick={triggerCamera}>
-							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+						<button type="button" class="action-large btn-primary" onclick={triggerCamera}>
+							<svg
+								width="22"
+								height="22"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
+								<path
+									d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"
+								/>
 								<circle cx="12" cy="13" r="4" />
 							</svg>
 							<span>Tomar foto con la cámara</span>
 						</button>
 
-						<button type="button" class="btn-secondary action-large" onclick={triggerUpload}>
-							<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<button type="button" class="action-large btn-secondary" onclick={triggerUpload}>
+							<svg
+								width="22"
+								height="22"
+								viewBox="0 0 24 24"
+								fill="none"
+								stroke="currentColor"
+								stroke-width="2"
+							>
 								<rect x="3" y="3" width="18" height="18" rx="2" />
 								<circle cx="8.5" cy="8.5" r="1.5" />
 								<polyline points="21 15 16 10 5 21" />
@@ -188,7 +234,9 @@
 		<div class="processing-container card">
 			<div class="spinner-circle"></div>
 			<h2 class="proc-title">Leyendo tu ticket con IA...</h2>
-			<p class="proc-desc">Estamos extrayendo el comercio, el total y clasificando cada artículo según tus hábitos.</p>
+			<p class="proc-desc">
+				Estamos extrayendo el comercio, el total y clasificando cada artículo según tus hábitos.
+			</p>
 			<div class="pulse-bar"></div>
 		</div>
 	{/if}
@@ -198,9 +246,7 @@
 		<div class="revision-container">
 			<div class="revision-header">
 				<h2 class="section-title">Revisa los datos del ticket</h2>
-				<button type="button" class="btn-text" onclick={resetToCapture}>
-					Volver a escanear
-				</button>
+				<button type="button" class="btn-text" onclick={resetToCapture}> Volver a escanear </button>
 			</div>
 
 			<form
@@ -262,7 +308,9 @@
 						<label class="switch-label" for="onlyTotalSwitch">
 							<div>
 								<span class="switch-title">Solo guardar el total</span>
-								<span class="switch-desc">Guarda como un solo movimiento sin detalle de artículos</span>
+								<span class="switch-desc"
+									>Guarda como un solo movimiento sin detalle de artículos</span
+								>
 							</div>
 							<input
 								type="checkbox"
@@ -297,7 +345,9 @@
 					<div class="discrepancy-card card">
 						<div class="disc-icon">⚠️</div>
 						<div class="disc-text">
-							<span>Aviso discreto:</span> La suma de los artículos (${sumItemsPesos.toFixed(2)}) no coincide exactamente con el total (${totalParsed.toFixed(2)}). Puedes guardar de todos modos.
+							<span>Aviso discreto:</span> La suma de los artículos (${sumItemsPesos.toFixed(2)}) no
+							coincide exactamente con el total (${totalParsed.toFixed(2)}). Puedes guardar de todos
+							modos.
 						</div>
 					</div>
 				{/if}
@@ -313,7 +363,10 @@
 						<input type="hidden" name="itemsCount" value={items.length} />
 
 						{#if items.length === 0}
-							<p class="empty-items-text">No se desglosaron artículos individuales. Puedes guardar el total directamente activando "Solo guardar el total".</p>
+							<p class="empty-items-text">
+								No se desglosaron artículos individuales. Puedes guardar el total directamente
+								activando "Solo guardar el total".
+							</p>
 						{:else}
 							<div class="items-list">
 								{#each items as item, index}
@@ -372,7 +425,7 @@
 				{/if}
 
 				<div class="submit-section">
-					<button type="submit" class="btn-primary w-full save-btn" disabled={isSaving}>
+					<button type="submit" class="save-btn btn-primary w-full" disabled={isSaving}>
 						{isSaving ? 'Guardando...' : 'Guardar ticket'}
 					</button>
 				</div>
@@ -584,7 +637,8 @@
 		gap: 1.25rem;
 	}
 
-	.header-card, .items-card {
+	.header-card,
+	.items-card {
 		padding: 1.25rem;
 	}
 
@@ -821,11 +875,17 @@
 	}
 
 	@keyframes spin {
-		to { transform: rotate(360deg); }
+		to {
+			transform: rotate(360deg);
+		}
 	}
 
 	@keyframes pulseWidth {
-		from { transform: translateX(-100%); }
-		to { transform: translateX(100%); }
+		from {
+			transform: translateX(-100%);
+		}
+		to {
+			transform: translateX(100%);
+		}
 	}
 </style>

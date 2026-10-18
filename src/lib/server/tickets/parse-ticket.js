@@ -1,19 +1,29 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { z } from 'zod';
 import { env } from '$env/dynamic/private';
 import { TICKET_PARSER_SYSTEM_PROMPT } from './prompts.js';
 import { pesosToCents } from '$lib/utils/money.js';
+import { normalizeTicketItems } from '$lib/utils/ticket-items.js';
+import { callOpenRouter, extractJson, openRouterErrorMessage } from '$lib/server/ai/openrouter.js';
 
 const parsedTicketSchema = z.object({
 	merchant: z.string().nullable().optional(),
 	date: z.string().nullable().optional(),
-	total: z.number().nonnegative(),
+	total: z.coerce.number().default(0),
 	items: z
 		.array(
 			z.object({
-				originalDescription: z.string().min(1),
-				amount: z.number().nonnegative(),
-				status: z.enum(['identified', 'ambiguous', 'pending']).default('identified')
+				originalDescription: z.string().nullish().transform((v) => (v || '').trim() || 'Artículo'),
+				amount: z.coerce.number().default(0),
+				status: z
+					.string()
+					.nullish()
+					.transform((val) => {
+						const lower = (val || '').toLowerCase();
+						if (lower === 'identified' || lower === 'ambiguous' || lower === 'pending') {
+							return lower;
+						}
+						return 'identified';
+					})
 			})
 		)
 		.default([])
@@ -26,80 +36,86 @@ const parsedTicketSchema = z.object({
  * @returns {Promise<{ success: true, data: { merchant: string|null, date: string|null, totalCents: number, items: Array<{ originalDescription: string, amountCents: number, status: 'identified'|'ambiguous'|'pending' }> } } | { success: false, error: string }>}
  */
 export async function parseTicketImage(imageBuffer, mimeType) {
-	const apiKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-	if (!apiKey) {
+	const openRouterKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
+	const anthropicKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
+	if (!openRouterKey && !anthropicKey) {
 		return {
 			success: false,
-			error: 'No se ha configurado la clave de Anthropic (ANTHROPIC_API_KEY). Puedes ingresar el ticket manualmente.'
+			error:
+				'No se ha configurado OPENROUTER_API_KEY. Crea una key free en https://openrouter.ai/keys y agregala a tu .env'
 		};
 	}
 
-	const model = env.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
 	const base64Data = imageBuffer.toString('base64');
 
-	// Validar media type compatible
-	/** @type {'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif'} */
 	let mediaType = 'image/jpeg';
 	if (mimeType.includes('png')) mediaType = 'image/png';
 	else if (mimeType.includes('webp')) mediaType = 'image/webp';
 	else if (mimeType.includes('gif')) mediaType = 'image/gif';
 
+	// Si hay key de OpenRouter, es el camino principal (modelos free con vision).
+	// Si solo hay Anthropic, se mantiene compatibilidad con el codigo anterior.
+	const useAnthropicOnly = !openRouterKey && !!anthropicKey;
+
 	try {
-		const anthropic = new Anthropic({ apiKey });
-
-		const response = await anthropic.messages.create({
-			model,
-			max_tokens: 2048,
-			system: TICKET_PARSER_SYSTEM_PROMPT,
-			messages: [
-				{
-					role: 'user',
-					content: [
-						{
-							type: 'image',
-							source: {
-								type: 'base64',
-								media_type: mediaType,
-								data: base64Data
-							}
-						},
-						{
-							type: 'text',
-							text: 'Analiza este ticket de compra y devuelve un objeto JSON con los campos: merchant, date, total, e items (con originalDescription, amount, y status).'
-						}
-					]
-				}
-			]
-		});
-
-		const textBlock = response.content.find((b) => b.type === 'text');
-		if (!textBlock || !textBlock.text) {
-			return {
-				success: false,
-				error: 'No se pudo leer el contenido del ticket. Intenta con una foto más nítida o regístralo manualmente.'
-			};
+		let text;
+		if (useAnthropicOnly) {
+			text = await callAnthropicVision(anthropicKey, base64Data, mediaType);
+		} else {
+			const dataUrl = `data:${mediaType};base64,${base64Data}`;
+			const result = await callOpenRouter({
+				system: TICKET_PARSER_SYSTEM_PROMPT,
+				max_tokens: 4096,
+				temperature: 0.1,
+				messages: [
+					{
+						role: 'user',
+						content: [
+							{
+								type: 'text',
+								text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"originalDescription": string, "amount": number, "status": "identified|ambiguous"}]}.'
+							},
+							{ type: 'image_url', image_url: { url: dataUrl } }
+						]
+					}
+				]
+			});
+			text = result.text;
 		}
 
-		// Extraer JSON (puede venir envuelto en ```json ... ```)
-		let jsonText = textBlock.text.trim();
-		const match = jsonText.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-		if (match) {
-			jsonText = match[1].trim();
+		if (!text) {
+			return {
+				success: false,
+				error:
+					'No se pudo leer el contenido del ticket. Intenta con una foto más nítida o regístralo manualmente.'
+			};
 		}
 
 		let rawJson;
 		try {
-			rawJson = JSON.parse(jsonText);
-		} catch {
+			rawJson = extractJson(text);
+		} catch (err) {
+			console.error('[parseTicketImage] extractJson error:', err);
+			if (err?.code === 'model_safety_block') {
+				return {
+					success: false,
+					error: openRouterErrorMessage(err)
+				};
+			}
 			return {
 				success: false,
-				error: 'La respuesta de la IA no tuvo el formato esperado. Intenta de nuevo o ingresa el ticket manualmente.'
+				error:
+					'La respuesta de la IA no tuvo el formato esperado. Intenta de nuevo o ingresa el ticket manualmente.'
 			};
 		}
 
 		// Validar con el esquema Zod
 		const validation = parsedTicketSchema.safeParse(rawJson);
 		if (!validation.success) {
+			console.error(
+				'[parseTicketImage] Zod validation error:',
+				JSON.stringify(validation.error.issues, null, 2)
+			);
 			return {
 				success: false,
 				error: 'Los datos del ticket no pudieron validarse. Puedes registrarlo manualmente.'
@@ -108,7 +124,8 @@ export async function parseTicketImage(imageBuffer, mimeType) {
 
 		const data = validation.data;
 		const totalCents = pesosToCents(data.total);
-		const items = data.items.map((item) => ({
+		const normalizedItems = normalizeTicketItems(data.items);
+		const items = normalizedItems.map((item) => ({
 			originalDescription: item.originalDescription.trim(),
 			amountCents: pesosToCents(item.amount),
 			status: item.status
@@ -124,10 +141,35 @@ export async function parseTicketImage(imageBuffer, mimeType) {
 			}
 		};
 	} catch (err) {
-		console.error('Error al parsear ticket con Anthropic:', err);
+		console.error('Error al parsear ticket con IA:', err);
 		return {
 			success: false,
-			error: 'Ocurrió un error al procesar el ticket con la IA. Puedes registrar la compra manualmente.'
+			error: openRouterErrorMessage(err)
 		};
 	}
+}
+
+async function callAnthropicVision(apiKey, base64Data, mediaType) {
+	const { default: Anthropic } = await import('@anthropic-ai/sdk');
+	const model = env.ANTHROPIC_MODEL || process.env.ANTHROPIC_MODEL || 'claude-3-5-sonnet-20241022';
+	const anthropic = new Anthropic({ apiKey });
+	const response = await anthropic.messages.create({
+		model,
+		max_tokens: 2048,
+		system: TICKET_PARSER_SYSTEM_PROMPT,
+		messages: [
+			{
+				role: 'user',
+				content: [
+					{ type: 'image', source: { type: 'base64', media_type: mediaType, data: base64Data } },
+					{
+						type: 'text',
+						text: 'Extrae los datos de este ticket y responde ÚNICAMENTE con un objeto JSON válido. No incluyas explicaciones, análisis ni texto adicional. Solo el JSON con formato: {"merchant": string|null, "date": string|null, "total": number, "items": [{"originalDescription": string, "amount": number, "status": "identified|ambiguous"}]}.'
+					}
+				]
+			}
+		]
+	});
+	const block = response.content.find((b) => b.type === 'text');
+	return block?.text || '';
 }
