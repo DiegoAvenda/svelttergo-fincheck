@@ -2,8 +2,8 @@ import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
 
 /**
- * @typedef {{ originalDescription: string, normalizedDescription: string, amountCents: number, categoryId: ObjectId|null, status: 'identified'|'ambiguous'|'pending' }} MovementItem
- * @typedef {{ _id: ObjectId, userId: string, type: 'expense'|'income', amountCents: number, date: Date, merchant: string|null, categoryId: ObjectId|null, note: string|null, source: 'manual'|'ticket', items: MovementItem[], createdAt: Date, updatedAt: Date }} Movement
+ * @typedef {{ originalDescription: string, amountCents: number, categoryId: ObjectId|null, subcategoryKey?: string|null }} MovementItem
+ * @typedef {{ _id: ObjectId, userId: string, type: 'expense'|'income', amountCents: number, date: Date, merchant: string|null, categoryId: ObjectId|null, subcategoryKey?: string|null, categoryKey?: string|null, note: string|null, source: 'manual'|'ticket', items: MovementItem[], createdAt: Date, updatedAt: Date }} Movement
  */
 
 /**
@@ -20,6 +20,8 @@ export async function createMovement(userId, data) {
 		date: data.date,
 		merchant: data.merchant || null,
 		categoryId: data.categoryId || null,
+		subcategoryKey: data.subcategoryKey || null,
+		categoryKey: data.categoryKey || null,
 		note: data.note || null,
 		source: data.source,
 		items: data.items || [],
@@ -85,11 +87,7 @@ export async function listMovements(userId, options = {}) {
 
 	if (search) {
 		const regex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-		const searchOr = [
-			{ merchant: regex },
-			{ note: regex },
-			{ 'items.originalDescription': regex }
-		];
+		const searchOr = [{ merchant: regex }, { note: regex }, { 'items.originalDescription': regex }];
 		if (filter.$or) {
 			// Combinar con el filtro de categoría
 			filter.$and = [{ $or: filter.$or }, { $or: searchOr }];

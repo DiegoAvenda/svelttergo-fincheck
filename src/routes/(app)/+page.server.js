@@ -1,7 +1,13 @@
-import { sumIncomeInRange, sumExpensesInRange, getRecentMovements, deleteMovement } from '$lib/server/repos/movements.js';
+import {
+	sumIncomeInRange,
+	sumExpensesInRange,
+	getRecentMovements,
+	deleteMovement
+} from '$lib/server/repos/movements.js';
 import { getSpendingByCategory } from '$lib/server/analytics/spending-by-category.js';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
+import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
 import { fail } from '@sveltejs/kit';
 
 export const load = async (event) => {
@@ -27,21 +33,26 @@ export const load = async (event) => {
 		categoryMap.set(c._id.toString(), c.name);
 	}
 
-	// Top 3 a 5 categorías con porcentaje sobre el gasto total
+	// Top 3 a 5 categorías con porcentaje sobre el gasto total y sobre el ingreso
 	const topCategories = rawSpending.slice(0, 5).map((item) => {
-		const catName = item.categoryId ? categoryMap.get(item.categoryId.toString()) || 'Sin clasificar' : 'Sin clasificar';
-		const pct = expensesCents > 0 ? Math.round((item.totalCents / expensesCents) * 100) : 0;
+		const catName = item.categoryId
+			? categoryMap.get(item.categoryId.toString()) || 'Sin clasificar'
+			: 'Sin clasificar';
 		return {
 			categoryId: item.categoryId ? item.categoryId.toString() : null,
 			name: catName,
 			totalCents: item.totalCents,
-			pct
+			// % del gasto total (denominador = gasto) y % del ingreso (denominador = ingreso).
+			pct: pctOf(item.totalCents, expensesCents),
+			incomePct: pctOfNullable(item.totalCents, incomeCents)
 		};
 	});
 
 	// Serializar últimos movimientos
 	const serializedRecent = recentMovements.map((m) => {
-		const catName = m.categoryId ? categoryMap.get(m.categoryId.toString()) || 'Sin categoría' : 'Sin categoría';
+		const catName = m.categoryId
+			? categoryMap.get(m.categoryId.toString()) || 'Sin categoría'
+			: 'Sin categoría';
 		return {
 			id: m._id.toString(),
 			type: m.type,

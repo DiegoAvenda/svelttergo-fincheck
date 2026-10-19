@@ -13,7 +13,9 @@
  *    Bebidas, Refrescos, Café, Agua, Snacks y botanas, Otros, etc.) a la fija
  *    equivalente (Despensa / Snacks y bebidas / Restaurantes y delivery /
  *    Ropa y cuidado personal / Entretenimiento y suscripciones / Sin clasificar).
- * 4. Reasigna classification_memory e item_corrections con el mismo mapeo.
+ * 4. Reasigna item_corrections con el mismo mapeo.
+ *    (classification_memory se eliminó: el historial vive en movements.items
+ *    y las correcciones solo en item_corrections.)
  * 5. Elimina las categorías legacy que queden sin movimientos.
  *
  * Idempotente: se puede correr varias veces sin daño.
@@ -41,6 +43,29 @@ const FIXED = [
 ];
 
 const SYSTEM = 'Sin clasificar';
+
+// key estable por nombre (para enlazar con subcategorías). Debe coincidir con
+// src/lib/server/defaults/categories.js.
+const CATEGORY_KEY_BY_NAME = {
+	Vivienda: 'vivienda',
+	Servicios: 'servicios',
+	Despensa: 'despensa',
+	'Restaurantes y delivery': 'restaurantes-delivery',
+	'Snacks y bebidas': 'snacks-bebidas',
+	Transporte: 'transporte',
+	Salud: 'salud',
+	Educación: 'educacion',
+	Hogar: 'hogar',
+	'Ropa y cuidado personal': 'ropa-cuidado-personal',
+	'Entretenimiento y suscripciones': 'entretenimiento-suscripciones',
+	'Familia e hijos': 'familia-hijos',
+	Mascotas: 'mascotas',
+	'Viajes y vacaciones': 'viajes-vacaciones',
+	Deudas: 'deudas',
+	'Comisiones e impuestos': 'comisiones-impuestos',
+	'Regalos y donativos': 'regalos-donativos',
+	'Sin clasificar': 'sin-clasificar'
+};
 
 // Legacy (minúsculas, sin acentos) -> fija equivalente.
 const LEGACY_MAP = {
@@ -98,10 +123,12 @@ async function main() {
 
 		// 1-2. Asegurar sistema + fijas.
 		for (const name of [SYSTEM, ...FIXED]) {
-			if (!byNorm.has(norm(name))) {
+			const existing = byNorm.get(norm(name));
+			if (!existing) {
 				const res = await db.collection('categories').insertOne({
 					userId,
 					name,
+					categoryKey: CATEGORY_KEY_BY_NAME[name] || null,
 					parentId: null,
 					isFavorite: false,
 					isHidden: false,
@@ -110,6 +137,11 @@ async function main() {
 				});
 				byNorm.set(norm(name), { _id: res.insertedId, name });
 				stats.created++;
+			} else if (!existing.categoryKey && CATEGORY_KEY_BY_NAME[name]) {
+				await db
+					.collection('categories')
+					.updateOne({ _id: existing._id }, { $set: { categoryKey: CATEGORY_KEY_BY_NAME[name] } });
+				existing.categoryKey = CATEGORY_KEY_BY_NAME[name];
 			}
 		}
 
@@ -138,12 +170,9 @@ async function main() {
 					{ arrayFilters: [{ 'el.categoryId': cat._id }] }
 				);
 			const m3 = await db
-				.collection('classification_memory')
-				.updateMany({ userId, categoryId: cat._id }, { $set: { categoryId: targetId } });
-			const m4 = await db
 				.collection('item_corrections')
 				.updateMany({ userId, categoryId: cat._id }, { $set: { categoryId: targetId } });
-			stats.reassigned += m1.modifiedCount + m2.modifiedCount + m3.modifiedCount + m4.modifiedCount;
+			stats.reassigned += m1.modifiedCount + m2.modifiedCount + m3.modifiedCount;
 
 			// 5. Eliminar la legacy si ya no tiene movimientos.
 			const remaining = await db.collection('movements').countDocuments({

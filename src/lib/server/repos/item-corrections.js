@@ -21,15 +21,16 @@ import { getDb } from '$lib/server/db.js';
 
 export function normalizeStoreName(store) {
 	if (!store || typeof store !== 'string') return null;
-	return store
-		.toLowerCase()
-		.normalize('NFD')
-		.replace(/[\u0300-\u036f]/g, '')
-		.replace(/[^a-z0-9\s]/g, '')
-		.replace(/\s+/g, ' ')
-		.trim()
-		.replace(/^(bodega|tienda|super)\s+/, '')
-		|| null;
+	return (
+		store
+			.toLowerCase()
+			.normalize('NFD')
+			.replace(/[\u0300-\u036f]/g, '')
+			.replace(/[^a-z0-9\s]/g, '')
+			.replace(/\s+/g, ' ')
+			.trim()
+			.replace(/^(bodega|tienda|super)\s+/, '') || null
+	);
 }
 
 /**
@@ -62,7 +63,11 @@ export async function findItemCorrection(userId, item) {
 	}
 
 	// 2b. Fallback: solo descripción normalizada (tiendas sin nombre o tickets viejos).
-	const byDesc = await col.findOne({ userId, store: store || null, normalizedDescription: normalized });
+	const byDesc = await col.findOne({
+		userId,
+		store: store || null,
+		normalizedDescription: normalized
+	});
 	if (byDesc?.categoryId) return byDesc;
 	if (!store) {
 		const anyStore = await col.findOne({ userId, normalizedDescription: normalized });
@@ -74,14 +79,17 @@ export async function findItemCorrection(userId, item) {
 
 /**
  * Upsert de corrección (actualiza si existe por itemCode / store+rawDescription, inserta si es nuevo).
+ * Guarda categoryId (compat) + categoryKey/subcategoryKey derivados de la subcategoría.
  * @param {string} userId
- * @param {{ itemCode?: string|null, store?: string|null, rawDescription: string, correctedDescription: string, categoryId: import('mongodb').ObjectId|string, department?: string|null }} data
+ * @param {{ itemCode?: string|null, store?: string|null, rawDescription: string, correctedDescription: string, categoryId: import('mongodb').ObjectId|string, subcategoryKey?: string|null, department?: string|null }} data
  */
 export async function upsertItemCorrection(userId, data) {
 	const db = await getDb();
 	const col = db.collection('item_corrections');
 	const { normalizeDescription } = await import('$lib/utils/normalize-description.js');
 	const { ObjectId } = await import('mongodb');
+	const { getSubcategoryByKey, getCategoryKeyOfSubcategory } =
+		await import('$lib/server/defaults/subcategories.js');
 
 	const itemCode = (data?.itemCode || '').toString().trim() || null;
 	const rawDescription = (data?.rawDescription || '').trim();
@@ -90,13 +98,18 @@ export async function upsertItemCorrection(userId, data) {
 	const store = normalizeStoreName(data?.store);
 	const normalizedDescription = normalizeDescription(rawDescription);
 	const department = (data?.department || '').toString().trim() || null;
-	const categoryId = data?.categoryId instanceof ObjectId ? data.categoryId : new ObjectId(data.categoryId);
+	const categoryId =
+		data?.categoryId instanceof ObjectId ? data.categoryId : new ObjectId(data.categoryId);
+	const subcategoryKey = (data?.subcategoryKey || '').toString().trim() || null;
+	if (subcategoryKey) {
+		const hit = getSubcategoryByKey(subcategoryKey);
+		if (!hit) throw new Error(`subcategoryKey inválida: ${subcategoryKey}`);
+	}
+	const categoryKey = subcategoryKey ? getCategoryKeyOfSubcategory(subcategoryKey) : null;
 	const now = new Date();
 
 	// Filtro de upsert: por itemCode si existe, si no por store + descripción normalizada.
-	const filter = itemCode
-		? { userId, itemCode }
-		: { userId, store, normalizedDescription };
+	const filter = itemCode ? { userId, itemCode } : { userId, store, normalizedDescription };
 
 	return col.updateOne(
 		filter,
@@ -109,6 +122,8 @@ export async function upsertItemCorrection(userId, data) {
 				normalizedDescription,
 				correctedDescription,
 				categoryId,
+				categoryKey,
+				subcategoryKey,
 				department,
 				updatedAt: now
 			},

@@ -8,11 +8,50 @@
 	let note = $state(data.movement.note);
 	let date = $state(data.movement.date);
 	let categoryId = $state(data.movement.categoryId);
+	let subcategoryKey = $state(data.movement.subcategoryKey || '');
 	let items = $state(data.movement.items);
 
 	let isEditing = $state(false);
 	let showDeleteConfirm = $state(false);
 	let saving = $state(false);
+
+	const subcategories = $derived(data.subcategories ?? []);
+
+	function categoryKeyOf(catId) {
+		return data.categories.find((c) => c.id === catId)?.categoryKey ?? null;
+	}
+
+	function subcatsForCategory(catId) {
+		const key = categoryKeyOf(catId);
+		if (!key) return [];
+		return subcategories.filter((s) => s.categoryKey === key);
+	}
+
+	function onCategoryChange() {
+		if (!subcatsForCategory(categoryId).some((s) => s.key === subcategoryKey)) {
+			subcategoryKey = '';
+		}
+	}
+
+	function onSubcategoryChange() {
+		const sub = subcategories.find((s) => s.key === subcategoryKey);
+		if (!sub) return;
+		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
+		if (cat) categoryId = cat.id;
+	}
+
+	function onItemCategoryChange(item) {
+		if (!subcatsForCategory(item.categoryId).some((s) => s.key === item.subcategoryKey)) {
+			item.subcategoryKey = '';
+		}
+	}
+
+	function onItemSubcategoryChange(item) {
+		const sub = subcategories.find((s) => s.key === item.subcategoryKey);
+		if (!sub) return;
+		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
+		if (cat) item.categoryId = cat.id;
+	}
 </script>
 
 <svelte:head>
@@ -22,7 +61,14 @@
 <div class="detail-page">
 	<div class="top-bar">
 		<a href="/movimientos" class="back-link" aria-label="Volver a movimientos">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -102,7 +148,12 @@
 				<div class="field-row">
 					<span class="field-label">Categoría:</span>
 					{#if isEditing}
-						<select name="categoryId" bind:value={categoryId} class="select-inline">
+						<select
+							name="categoryId"
+							bind:value={categoryId}
+							onchange={onCategoryChange}
+							class="select-inline"
+						>
 							{#each data.categories as cat}
 								<option value={cat.id}>{cat.parentId ? '— ' : ''}{cat.name}</option>
 							{/each}
@@ -111,13 +162,40 @@
 						<span class="field-value">{data.movement.categoryName}</span>
 					{/if}
 				</div>
+
+				<div class="field-row">
+					<span class="field-label">Subcategoría:</span>
+					{#if isEditing}
+						<select
+							name="subcategoryKey"
+							bind:value={subcategoryKey}
+							onchange={onSubcategoryChange}
+							class="select-inline"
+						>
+							<option value="">Pendiente de revisión</option>
+							{#each subcatsForCategory(categoryId) as sub (sub.key)}
+								<option value={sub.key}>{sub.name}</option>
+							{/each}
+						</select>
+					{:else}
+						<span class="field-value">
+							{data.movement.subcategoryName || 'Pendiente de revisión'}
+						</span>
+					{/if}
+				</div>
 				<div class="divider"></div>
 			{/if}
 
 			<div class="field-row">
 				<span class="field-label">Nota:</span>
 				{#if isEditing}
-					<input type="text" name="note" bind:value={note} class="input-inline" placeholder="Agregar nota..." />
+					<input
+						type="text"
+						name="note"
+						bind:value={note}
+						class="input-inline"
+						placeholder="Agregar nota..."
+					/>
 				{:else}
 					<span class="field-value">{data.movement.note || '—'}</span>
 				{/if}
@@ -142,16 +220,37 @@
 								<span class="item-desc">{item.originalDescription}</span>
 								<div class="item-cat-selector">
 									{#if isEditing}
-										<select name="item_cat_{index}" bind:value={item.categoryId} class="select-small">
+										<select
+											name="item_cat_{index}"
+											bind:value={item.categoryId}
+											onchange={() => onItemCategoryChange(item)}
+											class="select-small"
+										>
 											<option value="">Sin clasificar</option>
 											{#each data.categories as cat}
 												<option value={cat.id}>{cat.name}</option>
+											{/each}
+										</select>
+										<select
+											name="item_subcat_{index}"
+											bind:value={item.subcategoryKey}
+											onchange={() => onItemSubcategoryChange(item)}
+											class="select-small"
+										>
+											<option value="">Pendiente de revisión</option>
+											{#each subcatsForCategory(item.categoryId) as sub (sub.key)}
+												<option value={sub.key}>{sub.name}</option>
 											{/each}
 										</select>
 									{:else}
 										<span class="cat-tag" class:unclassified={!item.categoryId}>
 											{item.categoryName}
 										</span>
+										{#if item.subcategoryName}
+											<span class="cat-tag sub">{item.subcategoryName}</span>
+										{:else}
+											<span class="cat-tag unclassified">Pendiente de revisión</span>
+										{/if}
 									{/if}
 								</div>
 							</div>
@@ -179,27 +278,24 @@
 			<div class="delete-confirm-box card">
 				<p class="confirm-text">¿Seguro que deseas eliminar este movimiento?</p>
 				<div class="confirm-actions">
-					<button
-						type="button"
-						class="btn-secondary"
-						onclick={() => (showDeleteConfirm = false)}
-					>
+					<button type="button" class="btn-secondary" onclick={() => (showDeleteConfirm = false)}>
 						Cancelar
 					</button>
 					<form method="post" action="?/delete" use:enhance>
-						<button type="submit" class="btn-danger">
-							Sí, eliminar
-						</button>
+						<button type="submit" class="btn-danger"> Sí, eliminar </button>
 					</form>
 				</div>
 			</div>
 		{:else}
-			<button
-				type="button"
-				class="delete-trigger-btn"
-				onclick={() => (showDeleteConfirm = true)}
-			>
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<button type="button" class="delete-trigger-btn" onclick={() => (showDeleteConfirm = true)}>
+				<svg
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<polyline points="3 6 5 6 21 6" />
 					<path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" />
 				</svg>
@@ -305,7 +401,8 @@
 		margin-top: 0.25rem;
 	}
 
-	.info-card, .items-card {
+	.info-card,
+	.items-card {
 		padding: 1.25rem;
 		margin-bottom: 1.25rem;
 	}
@@ -335,7 +432,8 @@
 		text-align: right;
 	}
 
-	.input-inline, .select-inline {
+	.input-inline,
+	.select-inline {
 		padding: 0.375rem 0.625rem;
 		background: var(--input-bg);
 		border: 1px solid var(--app-border);
@@ -397,6 +495,17 @@
 			background: var(--color-accent-100);
 			color: var(--color-accent-800);
 		}
+
+		&.sub {
+			background: var(--input-bg);
+			color: var(--app-text);
+		}
+	}
+
+	.item-cat-selector {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.375rem;
 	}
 
 	.select-small {

@@ -1,14 +1,23 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { createMovement } from '$lib/server/repos/movements.js';
-import { upsertClassification } from '$lib/server/repos/classification-memory.js';
 import { upsertItemCorrection } from '$lib/server/repos/item-corrections.js';
 import { parseTicketImage } from '$lib/server/tickets/parse-ticket.js';
 import { classifyItems } from '$lib/server/tickets/classify-items.js';
-import { normalizeDescription } from '$lib/utils/normalize-description.js';
+import { shouldPersistCorrection } from '$lib/server/tickets/correction-decision.js';
 import { parseAmountToCents } from '$lib/utils/money.js';
 import { todayInMX } from '$lib/utils/periods.js';
 import { ObjectId } from 'mongodb';
+import {
+	buildCategoryIdByKeyMap,
+	buildCategoryKeyByIdMap,
+	categoryKeyOfDoc
+} from '$lib/server/defaults/categories.js';
+import {
+	SUBCATEGORIES,
+	getCategoryKeyOfSubcategory,
+	sanitizeSubcategoryKey
+} from '$lib/server/defaults/subcategories.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -16,9 +25,8 @@ export const load = async (event) => {
 
 	// Blindaje UI: el dropdown solo muestra el catálogo fijo (17 + sistema),
 	// aunque la BD aún tenga legacy. La auto-migración del layout las limpia.
-	const { normalizeCategoryName, fixedCatalogNames } = await import(
-		'$lib/server/defaults/categories.js'
-	);
+	const { normalizeCategoryName, fixedCatalogNames } =
+		await import('$lib/server/defaults/categories.js');
 	const allowed = new Set(fixedCatalogNames().map((n) => normalizeCategoryName(n)));
 	const fixedOnly = categories.filter((c) => allowed.has(normalizeCategoryName(c.name)));
 	const visible = fixedOnly.length > 0 ? fixedOnly : categories;
@@ -27,11 +35,31 @@ export const load = async (event) => {
 		categories: visible.map((c) => ({
 			id: c._id.toString(),
 			name: c.name,
+			categoryKey: categoryKeyOfDoc(c),
 			parentId: c.parentId ? c.parentId.toString() : null,
 			isSystem: !!c.isSystem
+		})),
+		// Catálogo fijo de subcategorías para los selectores de revisión.
+		subcategories: SUBCATEGORIES.map((s) => ({
+			key: s.key,
+			name: s.name,
+			categoryKey: s.categoryKey
 		}))
 	};
 };
+
+/**
+ * Resuelve la categoría principal a partir de una subcategoría (fuente de verdad).
+ * @param {string|null|undefined} subcategoryKey
+ * @param {Map<string, any>} categoryIdByKey
+ * @returns {{ subcategoryKey: string|null, categoryKey: string|null, categoryId: any|null }}
+ */
+function resolveFromSubcategory(subcategoryKey, categoryIdByKey) {
+	const cleanSub = sanitizeSubcategoryKey(subcategoryKey);
+	const categoryKey = cleanSub ? getCategoryKeyOfSubcategory(cleanSub) : null;
+	const categoryId = categoryKey ? (categoryIdByKey.get(categoryKey) ?? null) : null;
+	return { subcategoryKey: cleanSub, categoryKey, categoryId };
+}
 
 export const actions = {
 	procesar: async (event) => {
@@ -83,7 +111,7 @@ export const actions = {
 		// 2. Obtener categorías del usuario para clasificar
 		const rawCategories = await getVisibleCategories(userId);
 
-		// 3. Clasificar artículos (memoria + correcciones + IA), con la tienda como contexto
+		// 3. Clasificar artículos (correcciones + IA por subcategoría), con la tienda como contexto
 		const classifiedItems = await classifyItems(userId, parseResult.data.items, rawCategories, {
 			store: parseResult.data.merchant
 		});
@@ -97,6 +125,10 @@ export const actions = {
 			department: item.department || '',
 			amountCents: item.amountCents,
 			categoryId: item.categoryId ? item.categoryId.toString() : '',
+			subcategoryKey: item.subcategoryKey || '',
+			// Valores originales de la IA: permiten detectar correcciones del usuario.
+			aiCategoryId: item.categoryId ? item.categoryId.toString() : '',
+			aiSubcategoryKey: item.subcategoryKey || '',
 			status: item.status
 		}));
 
@@ -121,6 +153,7 @@ export const actions = {
 		const totalStr = formData.get('total')?.toString()?.trim() || '';
 		const onlyTotal = formData.get('onlyTotal')?.toString() === 'true';
 		const singleCategoryStr = formData.get('singleCategoryId')?.toString()?.trim() || '';
+		const singleSubcategoryStr = formData.get('singleSubcategoryKey')?.toString()?.trim() || '';
 
 		const totalCents = parseAmountToCents(totalStr);
 		if (totalCents === null || totalCents <= 0) {
@@ -131,15 +164,24 @@ export const actions = {
 
 		const movementDate = dateStr ? new Date(dateStr + 'T12:00:00Z') : todayInMX();
 
+		// Categorías del usuario para derivar la principal desde la subcategoría.
+		const categories = await getVisibleCategories(userId);
+		const categoryIdByKey = buildCategoryIdByKeyMap(categories);
+		const categoryKeyById = buildCategoryKeyByIdMap(categories);
+
 		if (onlyTotal) {
 			// Modo "Solo guardar el total"
-			let categoryId = null;
-			if (singleCategoryStr) {
+			const fromSub = resolveFromSubcategory(singleSubcategoryStr, categoryIdByKey);
+
+			let categoryId = fromSub.categoryId;
+			let categoryKey = fromSub.categoryKey;
+			let subcategoryKey = fromSub.subcategoryKey;
+
+			// Sin subcategoría válida: se conserva la categoría elegida (o pendiente).
+			if (!categoryId && singleCategoryStr) {
 				categoryId = new ObjectId(singleCategoryStr);
-			} else {
-				// Sin categoría elegida: cae a "Sin clasificar" (categoryId null).
-				// El sistema muestra null como pendiente de revisión.
-				categoryId = null;
+				categoryKey = categoryKeyById.get(singleCategoryStr) ?? null;
+				subcategoryKey = null;
 			}
 
 			const result = await createMovement(userId, {
@@ -148,6 +190,8 @@ export const actions = {
 				date: movementDate,
 				merchant: merchant || null,
 				categoryId,
+				categoryKey,
+				subcategoryKey,
 				note: 'Ticket de compra',
 				source: 'ticket',
 				items: []
@@ -168,38 +212,52 @@ export const actions = {
 			const department = formData.get(`item_dept_${i}`)?.toString()?.trim() || null;
 			const amtStr = formData.get(`item_amount_${i}`)?.toString()?.trim() || '';
 			const catStr = formData.get(`item_cat_${i}`)?.toString()?.trim() || '';
+			const subStr = formData.get(`item_subcat_${i}`)?.toString()?.trim() || '';
+			const origCatStr = formData.get(`item_cat_orig_${i}`)?.toString()?.trim() || '';
+			const origSubStr = formData.get(`item_subcat_orig_${i}`)?.toString()?.trim() || '';
+			const origDesc = formData.get(`item_desc_orig_${i}`)?.toString()?.trim() || '';
 			const status = formData.get(`item_status_${i}`)?.toString() || 'identified';
 
 			if (!desc) continue;
 
 			const amtCents = parseAmountToCents(amtStr) || 0;
-			const catId = catStr ? new ObjectId(catStr) : null;
-			const normalized = normalizeDescription(desc);
 
-			finalItems.push({
-				itemCode,
-				rawDescription: rawDesc,
-				cleanDescription: desc,
-				originalDescription: desc,
-				normalizedDescription: normalized,
-				department,
-				amountCents: amtCents,
-				categoryId: catId,
-				status: catId ? 'identified' : status
-			});
+			// La subcategoría manda: si es válida, se deriva la categoría principal.
+			const fromSub = resolveFromSubcategory(subStr, categoryIdByKey);
+			let catId = fromSub.categoryId;
+			let subcategoryKey = fromSub.subcategoryKey;
 
-			// Upsert en la memoria de clasificación para artículos confirmados
-			if (catId && normalized) {
-				await upsertClassification(userId, normalized, catId);
+			// Sin subcategoría: se respeta la categoría elegida (compatibilidad).
+			if (!catId && catStr) {
+				catId = new ObjectId(catStr);
+				subcategoryKey = null;
 			}
 
-			// Aprendizaje por corrección: si el usuario editó la descripción o resolvió
-			// un ítem ambiguo/sin categoría, persistir en item_corrections (upsert por
-			// itemCode, o por store + rawDescription) para futuras compras.
-			const wasAmbiguous = status === 'ambiguous' || !catStr;
-			const userEditedDescription =
-				normalizeDescription(rawDesc) !== normalized && rawDesc !== desc;
-			if (catId && (wasAmbiguous || userEditedDescription || itemCode)) {
+			// Solo se persiste lo que la app lee del movimiento. Los metadatos del
+			// escaneo (itemCode, raw/clean/normalizedDescription, department, status)
+			// solo hacen falta durante la revisión y para el aprendizaje en
+			// `item_corrections`; no en el movimiento guardado.
+			finalItems.push({
+				originalDescription: desc,
+				amountCents: amtCents,
+				categoryId: catId,
+				subcategoryKey
+			});
+
+			// Aprendizaje por corrección: SOLO si el usuario aclaró un ambiguo
+			// o editó la descripción/categoría/subcategoría respecto a lo que
+			// propuso la IA. Los ítems que la IA resolvió sola no se memorizan:
+			// el historial ya vive en movements.items.
+			const persistCorrection = shouldPersistCorrection({
+				status,
+				categoryId: catId ? catId.toString() : '',
+				originalCategoryId: origCatStr,
+				subcategoryKey,
+				originalSubcategoryKey: origSubStr,
+				description: desc,
+				originalDescription: origDesc
+			});
+			if (persistCorrection) {
 				try {
 					await upsertItemCorrection(userId, {
 						itemCode,
@@ -207,6 +265,7 @@ export const actions = {
 						rawDescription: rawDesc,
 						correctedDescription: desc,
 						categoryId: catId,
+						subcategoryKey,
 						department
 					});
 				} catch (err) {

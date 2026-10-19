@@ -26,7 +26,8 @@
 					<input type="hidden" name="id" value={data.createdNotice.id} />
 					<button type="submit" class="toast-btn undo">Deshacer</button>
 				</form>
-				<button type="button" class="close-toast" onclick={() => (noticeDismissed = true)}>✕</button>
+				<button type="button" class="close-toast" onclick={() => (noticeDismissed = true)}>✕</button
+				>
 			</div>
 		</div>
 	{/if}
@@ -57,7 +58,7 @@
 			<span class="stat-value expense-val">{formatMoney(data.expensesCents)}</span>
 		</div>
 
-		<div class="stat-card card balance-card">
+		<div class="stat-card balance-card card">
 			<span class="stat-label">Balance</span>
 			<span
 				class="stat-value"
@@ -88,6 +89,9 @@
 							<span class="cat-name">{cat.name}</span>
 							<div class="cat-amounts">
 								<span class="cat-money">{formatMoney(cat.totalCents)}</span>
+								{#if cat.incomePct !== null && cat.incomePct !== undefined}
+									<span class="cat-income-pct">{cat.incomePct}% del ingreso</span>
+								{/if}
 								<span class="cat-pct">{cat.pct}%</span>
 							</div>
 						</div>
@@ -111,12 +115,21 @@
 		{#if data.recentMovements.length === 0}
 			<div class="empty-state card">
 				<div class="empty-icon-circle">
-					<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+					<svg
+						width="32"
+						height="32"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="1.8"
+					>
 						<path d="M12 5v14M5 12h14" />
 					</svg>
 				</div>
 				<h3 class="empty-heading">Tu registro está vacío</h3>
-				<p class="empty-desc">Comienza anotando tu primer gasto o toma una foto de un ticket de compra.</p>
+				<p class="empty-desc">
+					Comienza anotando tu primer gasto o toma una foto de un ticket de compra.
+				</p>
 				<div class="empty-cta-row">
 					<a href="/registrar" class="btn-primary">Registrar gasto</a>
 					<a href="/escanear" class="btn-secondary">Escanear ticket</a>
@@ -132,23 +145,46 @@
 						<div class="m-left">
 							<div class="m-icon" class:income={m.type === 'income'}>
 								{#if m.source === 'ticket'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
 										<rect x="3" y="3" width="18" height="18" rx="2" />
 										<line x1="7" y1="8" x2="17" y2="8" />
 										<line x1="7" y1="12" x2="17" y2="12" />
 									</svg>
 								{:else if m.type === 'income'}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
 										<polyline points="18 15 12 9 6 15" />
 									</svg>
 								{:else}
-									<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
 										<polyline points="6 9 12 15 18 9" />
 									</svg>
 								{/if}
 							</div>
 							<div class="m-texts">
-								<span class="m-title">{m.merchant || m.note || (m.type === 'income' ? 'Ingreso' : 'Gasto')}</span>
+								<span class="m-title"
+									>{m.merchant || m.note || (m.type === 'income' ? 'Ingreso' : 'Gasto')}</span
+								>
 								<span class="m-meta">{m.categoryName} • {formatDate(new Date(m.date))}</span>
 							</div>
 						</div>
@@ -374,6 +410,15 @@
 		font-variant-numeric: tabular-nums;
 	}
 
+	.cat-income-pct {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		color: var(--color-primary-600);
+		background: var(--color-primary-50);
+		padding: 0.0625rem 0.375rem;
+		border-radius: var(--radius-sm);
+	}
+
 	.cat-pct {
 		font-size: 0.75rem;
 		font-weight: 600;
@@ -523,7 +568,13 @@
 	}
 
 	@keyframes slideDown {
-		from { transform: translateY(-10px); opacity: 0; }
-		to { transform: translateY(0); opacity: 1; }
+		from {
+			transform: translateY(-10px);
+			opacity: 0;
+		}
+		to {
+			transform: translateY(0);
+			opacity: 1;
+		}
 	}
 </style>

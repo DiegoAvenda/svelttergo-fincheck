@@ -1,5 +1,7 @@
 import { getDb } from '$lib/server/db.js';
 import { ObjectId } from 'mongodb';
+import { pctOf } from '$lib/utils/spending-math.js';
+import { subcategoryLabel } from '$lib/server/defaults/subcategories.js';
 
 /**
  * Detalle de gasto de una categoría: total, número de compras, promedio, comercios y artículos principales.
@@ -62,9 +64,49 @@ export async function getCategoryDetail(userId, categoryId, startDate, endDate) 
 		}
 	];
 
-	const [itemsResult, simpleResult] = await Promise.all([
+	// Desglose por subcategoría dentro de la categoría (mismos filtros de fecha).
+	const itemsSubcatPipeline = [
+		{
+			$match: {
+				userId,
+				type: 'expense',
+				date: { $gte: startDate, $lt: endDate },
+				'items.categoryId': catOid
+			}
+		},
+		{ $unwind: '$items' },
+		{ $match: { 'items.categoryId': catOid } },
+		{
+			$group: {
+				_id: '$items.subcategoryKey',
+				totalCents: { $sum: '$items.amountCents' }
+			}
+		}
+	];
+
+	const simpleSubcatPipeline = [
+		{
+			$match: {
+				userId,
+				type: 'expense',
+				date: { $gte: startDate, $lt: endDate },
+				categoryId: catOid,
+				$or: [{ items: { $exists: false } }, { items: { $size: 0 } }]
+			}
+		},
+		{
+			$group: {
+				_id: '$subcategoryKey',
+				totalCents: { $sum: '$amountCents' }
+			}
+		}
+	];
+
+	const [itemsResult, simpleResult, itemsSubcatResult, simpleSubcatResult] = await Promise.all([
 		db.collection('movements').aggregate(itemsPipeline).toArray(),
-		db.collection('movements').aggregate(simplePipeline).toArray()
+		db.collection('movements').aggregate(simplePipeline).toArray(),
+		db.collection('movements').aggregate(itemsSubcatPipeline).toArray(),
+		db.collection('movements').aggregate(simpleSubcatPipeline).toArray()
 	]);
 
 	let totalCents = 0;
@@ -119,5 +161,22 @@ export async function getCategoryDetail(userId, categoryId, startDate, endDate) 
 		.sort((a, b) => b.totalCents - a.totalCents)
 		.slice(0, 10);
 
-	return { totalCents, count, avgCents, topMerchants, topItems };
+	// Desglose por subcategoría: suma acumulada y % dentro de la categoría.
+	/** @type {Map<string, number>} */
+	const subcatMap = new Map();
+	for (const r of [...itemsSubcatResult, ...simpleSubcatResult]) {
+		const key = r._id ? r._id.toString() : 'pendiente';
+		subcatMap.set(key, (subcatMap.get(key) || 0) + r.totalCents);
+	}
+
+	const subcategories = Array.from(subcatMap.entries())
+		.map(([key, cents]) => ({
+			subcategoryKey: key === 'pendiente' ? null : key,
+			subcategoryName: key === 'pendiente' ? 'Pendiente de revisión' : subcategoryLabel(key),
+			totalCents: cents,
+			pctOfCategory: pctOf(cents, totalCents)
+		}))
+		.sort((a, b) => b.totalCents - a.totalCents);
+
+	return { totalCents, count, avgCents, topMerchants, topItems, subcategories };
 }

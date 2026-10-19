@@ -8,6 +8,7 @@ const correctionSchema = z.object({
 	rawDescription: z.string().min(1, 'rawDescription es requerido'),
 	correctedDescription: z.string().min(1, 'correctedDescription es requerido'),
 	categoryId: z.string().min(1, 'categoryId es requerido'),
+	subcategoryKey: z.string().nullish(),
 	department: z.string().nullish()
 });
 
@@ -35,17 +36,18 @@ export async function POST(event) {
 		return json({ success: false, error: 'Body JSON inválido' }, { status: 400 });
 	}
 
-	const payload = Array.isArray(body?.corrections)
-		? body
-		: { corrections: [{ ...body }] };
+	const payload = Array.isArray(body?.corrections) ? body : { corrections: [{ ...body }] };
 
 	const validation = batchSchema.safeParse({
 		corrections: payload.corrections.map((c) => ({
 			itemCode: c?.itemCode ?? null,
 			store: c?.store ?? null,
 			rawDescription: (c?.rawDescription || '').toString().trim(),
-			correctedDescription: (c?.correctedDescription || c?.cleanDescription || '').toString().trim(),
+			correctedDescription: (c?.correctedDescription || c?.cleanDescription || '')
+				.toString()
+				.trim(),
 			categoryId: (c?.categoryId || '').toString().trim(),
+			subcategoryKey: (c?.subcategoryKey || '').toString().trim() || null,
 			department: c?.department ?? null
 		}))
 	});
@@ -70,6 +72,7 @@ export async function POST(event) {
 				rawDescription: c.rawDescription,
 				correctedDescription: c.correctedDescription,
 				categoryId: c.categoryId,
+				subcategoryKey: c.subcategoryKey,
 				department: c.department
 			});
 			saved.push(c.rawDescription);

@@ -4,6 +4,16 @@ import { createMovement, getRecentMovements } from '$lib/server/repos/movements.
 import { parseAmountToCents } from '$lib/utils/money.js';
 import { todayInMX } from '$lib/utils/periods.js';
 import { ObjectId } from 'mongodb';
+import {
+	buildCategoryIdByKeyMap,
+	buildCategoryKeyByIdMap,
+	categoryKeyOfDoc
+} from '$lib/server/defaults/categories.js';
+import {
+	SUBCATEGORIES,
+	getCategoryKeyOfSubcategory,
+	sanitizeSubcategoryKey
+} from '$lib/server/defaults/subcategories.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -34,6 +44,7 @@ export const load = async (event) => {
 	const serializedCategories = categories.map((c) => ({
 		id: c._id.toString(),
 		name: c.name,
+		categoryKey: categoryKeyOfDoc(c),
 		parentId: c.parentId ? c.parentId.toString() : null,
 		isFavorite: !!c.isFavorite,
 		isSystem: !!c.isSystem
@@ -56,6 +67,11 @@ export const load = async (event) => {
 	return {
 		categories: serializedCategories,
 		quickChips: favoriteOrFrequent,
+		subcategories: SUBCATEGORIES.map((s) => ({
+			key: s.key,
+			name: s.name,
+			categoryKey: s.categoryKey
+		})),
 		todayStr
 	};
 };
@@ -68,6 +84,7 @@ export const actions = {
 		const type = formData.get('type')?.toString() === 'income' ? 'income' : 'expense';
 		const amountStr = formData.get('amount')?.toString()?.trim() ?? '';
 		const categoryIdStr = formData.get('categoryId')?.toString()?.trim() ?? '';
+		const subcategoryKeyStr = formData.get('subcategoryKey')?.toString()?.trim() ?? '';
 		const dateStr = formData.get('date')?.toString()?.trim() ?? '';
 		const merchant = formData.get('merchant')?.toString()?.trim() ?? '';
 		const note = formData.get('note')?.toString()?.trim() ?? '';
@@ -76,15 +93,67 @@ export const actions = {
 		if (amountCents === null || amountCents <= 0) {
 			return fail(400, {
 				error: 'El importe debe ser mayor a $0.00',
-				values: { type, amount: amountStr, categoryId: categoryIdStr, date: dateStr, merchant, note }
+				values: {
+					type,
+					amount: amountStr,
+					categoryId: categoryIdStr,
+					date: dateStr,
+					merchant,
+					note
+				}
 			});
 		}
 
 		if (type === 'expense' && !categoryIdStr) {
 			return fail(400, {
 				error: 'Selecciona una categoría para el gasto',
-				values: { type, amount: amountStr, categoryId: categoryIdStr, date: dateStr, merchant, note }
+				values: {
+					type,
+					amount: amountStr,
+					categoryId: categoryIdStr,
+					date: dateStr,
+					merchant,
+					note
+				}
 			});
+		}
+
+		// Derivar la categoría principal desde la subcategoría y validar coherencia.
+		const categories = await getVisibleCategories(userId);
+		const categoryIdByKey = buildCategoryIdByKeyMap(categories);
+		const categoryKeyById = buildCategoryKeyByIdMap(categories);
+
+		let subcategoryKey = sanitizeSubcategoryKey(subcategoryKeyStr);
+		const subCategoryKey = subcategoryKey ? getCategoryKeyOfSubcategory(subcategoryKey) : null;
+
+		let categoryId = null;
+		let categoryKey = null;
+		if (subCategoryKey) {
+			categoryId = categoryIdByKey.get(subCategoryKey) ?? null;
+			categoryKey = subCategoryKey;
+		}
+
+		if (type === 'expense' && subcategoryKey && categoryIdStr) {
+			const providedKey = categoryKeyById.get(categoryIdStr) ?? null;
+			if (providedKey && subCategoryKey && providedKey !== subCategoryKey) {
+				return fail(400, {
+					error: 'La subcategoría no pertenece a la categoría seleccionada.',
+					values: {
+						type,
+						amount: amountStr,
+						categoryId: categoryIdStr,
+						date: dateStr,
+						merchant,
+						note
+					}
+				});
+			}
+		}
+
+		if (!categoryId && categoryIdStr) {
+			categoryId = new ObjectId(categoryIdStr);
+			categoryKey = categoryKeyById.get(categoryIdStr) ?? null;
+			subcategoryKey = null;
 		}
 
 		let movementDate;
@@ -94,14 +163,14 @@ export const actions = {
 			movementDate = todayInMX();
 		}
 
-		const categoryId = categoryIdStr ? new ObjectId(categoryIdStr) : null;
-
 		const result = await createMovement(userId, {
 			type,
 			amountCents,
 			date: movementDate,
 			merchant: merchant || null,
 			categoryId,
+			categoryKey,
+			subcategoryKey,
 			note: note || null,
 			source: 'manual',
 			items: []

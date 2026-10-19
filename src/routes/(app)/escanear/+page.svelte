@@ -23,10 +23,52 @@
 
 	let onlyTotal = $state(false);
 	let singleCategoryId = $state(
-		data.categories.find((c) => !c.isSystem)?.id ||
-			data.categories[0]?.id ||
-			''
+		data.categories.find((c) => !c.isSystem)?.id || data.categories[0]?.id || ''
 	);
+	let singleSubcategoryKey = $state('');
+
+	// Catálogo fijo de subcategorías y utilidades para mantener la coherencia
+	// categoría <-> subcategoría en la interfaz.
+	const subcategories = $derived(data.subcategories ?? []);
+
+	function categoryKeyOf(catId) {
+		return data.categories.find((c) => c.id === catId)?.categoryKey ?? null;
+	}
+
+	function subcatsForCategory(catId) {
+		const key = categoryKeyOf(catId);
+		if (!key) return [];
+		return subcategories.filter((s) => s.categoryKey === key);
+	}
+
+	// Al cambiar la categoría, si la subcategoría ya no aplica se reinicia.
+	function onItemCategoryChange(item) {
+		const allowed = subcatsForCategory(item.categoryId).map((s) => s.key);
+		if (item.subcategoryKey && !allowed.includes(item.subcategoryKey)) {
+			item.subcategoryKey = '';
+		}
+	}
+
+	// Al cambiar la subcategoría, se actualiza la categoría principal coherente.
+	function onItemSubcategoryChange(item) {
+		const sub = subcategories.find((s) => s.key === item.subcategoryKey);
+		if (!sub) return;
+		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
+		if (cat) item.categoryId = cat.id;
+	}
+
+	function onSingleCategoryChange() {
+		if (!subcatsForCategory(singleCategoryId).some((s) => s.key === singleSubcategoryKey)) {
+			singleSubcategoryKey = '';
+		}
+	}
+
+	function onSingleSubcategoryChange() {
+		const sub = subcategories.find((s) => s.key === singleSubcategoryKey);
+		if (!sub) return;
+		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
+		if (cat) singleCategoryId = cat.id;
+	}
 
 	// Actualizar estado si llega un draft del form
 	$effect(() => {
@@ -86,43 +128,13 @@
 	}
 
 	/**
-	 * Aprendizaje por corrección (punto 3 del frontend):
-	 * Al confirmar el ticket, envía al backend /api/item-corrections los ítems que
-	 * el usuario corrigió manualmente (ambiguos resueltos o descripción editada).
-	 * No bloquea el guardado del ticket si falla: el form action ?/guardar ya hace
-	 * su propio upsert en item_corrections como respaldo.
+	 * Aprendizaje por corrección (única vía: el form action ?/guardar del backend).
+	 * Esta función quedó como no-op intencional: antes hacía un POST redundante a
+	 * /api/item-corrections que duplicaba escrituras. El backend guarda la corrección
+	 * SOLO si el usuario aclaró un ambiguo o editó descripción/categoría.
 	 */
 	async function persistUserCorrections() {
-		try {
-			const corrections = items
-				.filter((it) => {
-					if (!it.categoryId) return false;
-					const raw = (it.rawDescription || '').trim();
-					const current = (it.originalDescription || '').trim();
-					const wasAmbiguous = it.status === 'ambiguous';
-					const edited = raw && current && raw !== current;
-					return wasAmbiguous || edited || (it.itemCode || '').trim();
-				})
-				.map((it) => ({
-					itemCode: (it.itemCode || '').trim() || null,
-					store: (merchant || '').trim() || null,
-					rawDescription: (it.rawDescription || it.originalDescription || '').trim(),
-					correctedDescription: (it.originalDescription || '').trim(),
-					categoryId: (it.categoryId || '').trim(),
-					department: (it.department || '').trim() || null
-				}))
-				.filter((c) => c.rawDescription && c.correctedDescription && c.categoryId);
-
-			if (corrections.length === 0) return;
-
-			await fetch('/api/item-corrections', {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body: JSON.stringify({ corrections })
-			});
-		} catch (err) {
-			console.error('[escanear] persistUserCorrections error:', err);
-		}
+		return;
 	}
 </script>
 
@@ -378,10 +390,27 @@
 								id="singleCatSelect"
 								name="singleCategoryId"
 								bind:value={singleCategoryId}
+								onchange={onSingleCategoryChange}
 								class="input-field"
 							>
 								{#each data.categories as cat}
 									<option value={cat.id}>{cat.name}</option>
+								{/each}
+							</select>
+						</div>
+
+						<div class="field mt-3">
+							<label for="singleSubcatSelect" class="field-label">Subcategoría</label>
+							<select
+								id="singleSubcatSelect"
+								name="singleSubcategoryKey"
+								bind:value={singleSubcategoryKey}
+								onchange={onSingleSubcategoryChange}
+								class="input-field"
+							>
+								<option value="">Pendiente de revisión</option>
+								{#each subcatsForCategory(singleCategoryId) as sub (sub.key)}
+									<option value={sub.key}>{sub.name}</option>
 								{/each}
 							</select>
 						</div>
@@ -428,8 +457,11 @@
 												name="item_desc_{index}"
 												bind:value={item.originalDescription}
 												class="item-desc-input"
-												placeholder={item.rawDescription || "Descripción del artículo"}
-												title={item.rawDescription && item.rawDescription !== item.originalDescription ? `Texto del ticket: ${item.rawDescription}` : "Descripción del artículo (editable)"}
+												placeholder={item.rawDescription || 'Descripción del artículo'}
+												title={item.rawDescription &&
+												item.rawDescription !== item.originalDescription
+													? `Texto del ticket: ${item.rawDescription}`
+													: 'Descripción del artículo (editable)'}
 												required
 											/>
 											<div class="item-price-wrapper">
@@ -446,35 +478,89 @@
 										</div>
 
 										<div class="item-meta-row">
-										{#if item.department}<span class="meta-chip meta-dept" title="Departamento detectado en el ticket">{item.department}</span>{/if}
-										{#if item.itemCode}<span class="meta-chip meta-code" title="Código EAN/UPC del ticket">{item.itemCode}</span>{/if}
-										{#if item.rawDescription && item.rawDescription !== item.originalDescription}<span class="meta-raw" title="Texto exacto del ticket">Ticket: {item.rawDescription}</span>{/if}
-									</div>
+											{#if item.department}<span
+													class="meta-chip meta-dept"
+													title="Departamento detectado en el ticket">{item.department}</span
+												>{/if}
+											{#if item.itemCode}<span
+													class="meta-chip meta-code"
+													title="Código EAN/UPC del ticket">{item.itemCode}</span
+												>{/if}
+											{#if item.rawDescription && item.rawDescription !== item.originalDescription}<span
+													class="meta-raw"
+													title="Texto exacto del ticket">Ticket: {item.rawDescription}</span
+												>{/if}
+										</div>
 
-									<div class="item-category-row">
-											<div class="cat-picker-container">
-												<select
-													name="item_cat_{index}"
-													bind:value={item.categoryId}
-													class="item-cat-select"
-													class:pending-select={!item.categoryId}
-												>
-													<option value="">Sin clasificar (Pendiente)</option>
-													{#each data.categories as cat}
-														<option value={cat.id}>{cat.name}</option>
-													{/each}
-												</select>
+										<div class="item-classification">
+											<div class="classify-field">
+												<label class="classify-label" for="item_cat_{index}">Categoría</label>
+												<div class="cat-picker-container">
+													<select
+														id="item_cat_{index}"
+														name="item_cat_{index}"
+														bind:value={item.categoryId}
+														onchange={() => onItemCategoryChange(item)}
+														class="item-cat-select"
+														class:pending-select={!item.categoryId}
+													>
+														<option value="">Sin clasificar (Pendiente)</option>
+														{#each data.categories as cat}
+															<option value={cat.id}>{cat.name}</option>
+														{/each}
+													</select>
+												</div>
 											</div>
 
-											{#if !item.categoryId || item.status === 'ambiguous'}
+											<div class="classify-field">
+												<label class="classify-label" for="item_subcat_{index}">Subcategoría</label>
+												<div class="cat-picker-container">
+													<select
+														id="item_subcat_{index}"
+														name="item_subcat_{index}"
+														bind:value={item.subcategoryKey}
+														onchange={() => onItemSubcategoryChange(item)}
+														class="item-cat-select"
+														class:pending-select={!item.subcategoryKey}
+													>
+														<option value="">Pendiente de revisión</option>
+														{#each subcatsForCategory(item.categoryId) as sub (sub.key)}
+															<option value={sub.key}>{sub.name}</option>
+														{/each}
+													</select>
+												</div>
+											</div>
+
+											{#if !item.subcategoryKey || item.status === 'ambiguous'}
 												<span class="badge-pending">Resolver</span>
 											{/if}
 										</div>
 
 										<input type="hidden" name="item_status_{index}" value={item.status} />
-									<input type="hidden" name="item_raw_{index}" value={item.rawDescription || ''} />
-									<input type="hidden" name="item_code_{index}" value={item.itemCode || ''} />
-									<input type="hidden" name="item_dept_{index}" value={item.department || ''} />
+										<input
+											type="hidden"
+											name="item_raw_{index}"
+											value={item.rawDescription || ''}
+										/>
+										<!-- Descripción original propuesta por la IA: sirve para detectar
+										     si el usuario la editó (no confundir con el texto crudo del ticket). -->
+										<input
+											type="hidden"
+											name="item_desc_orig_{index}"
+											value={item.cleanDescription || item.originalDescription || ''}
+										/>
+										<input type="hidden" name="item_code_{index}" value={item.itemCode || ''} />
+										<input type="hidden" name="item_dept_{index}" value={item.department || ''} />
+										<input
+											type="hidden"
+											name="item_cat_orig_{index}"
+											value={item.aiCategoryId || ''}
+										/>
+										<input
+											type="hidden"
+											name="item_subcat_orig_{index}"
+											value={item.aiSubcategoryKey || ''}
+										/>
 									</div>
 								{/each}
 							</div>
@@ -897,11 +983,27 @@
 		color: var(--app-text-secondary);
 	}
 
-	.item-category-row {
+	.item-classification {
 		display: flex;
-		align-items: center;
-		justify-content: space-between;
+		align-items: flex-end;
+		flex-wrap: wrap;
 		gap: 0.5rem;
+	}
+
+	.classify-field {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		flex: 1;
+		min-width: 8rem;
+	}
+
+	.classify-label {
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		color: var(--app-text-secondary);
 	}
 
 	.cat-picker-container {

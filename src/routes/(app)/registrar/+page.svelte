@@ -5,18 +5,47 @@
 
 	let type = $state(form?.values?.type ?? 'expense');
 	let amount = $state(form?.values?.amount ?? '');
-	let categoryId = $state(form?.values?.categoryId ?? (data.quickChips[0]?.id ?? ''));
+	let categoryId = $state(form?.values?.categoryId ?? data.quickChips[0]?.id ?? '');
+	let subcategoryKey = $state(form?.values?.subcategoryKey ?? '');
 	let date = $state(form?.values?.date ?? data.todayStr);
 	let merchant = $state(form?.values?.merchant ?? '');
 	let note = $state(form?.values?.note ?? '');
-	let showMore = $state(!!(form?.values?.merchant || form?.values?.note || (form?.values?.date && form?.values?.date !== data.todayStr)));
+	let showMore = $state(
+		!!(
+			form?.values?.merchant ||
+			form?.values?.note ||
+			(form?.values?.date && form?.values?.date !== data.todayStr)
+		)
+	);
 	let submitting = $state(false);
 
 	// Filtrar categorías que no sean sistema
 	const displayCategories = $derived(data.categories.filter((c) => !c.isSystem));
+	const subcategories = $derived(data.subcategories ?? []);
+
+	function categoryKeyOf(id) {
+		return data.categories.find((c) => c.id === id)?.categoryKey ?? null;
+	}
+
+	function subcatsForCategory(id) {
+		const key = categoryKeyOf(id);
+		if (!key) return [];
+		return subcategories.filter((s) => s.categoryKey === key);
+	}
 
 	function selectCategory(id) {
 		categoryId = id;
+		// Reiniciar subcategoría si ya no pertenece a la nueva categoría.
+		if (!subcatsForCategory(id).some((s) => s.key === subcategoryKey)) {
+			subcategoryKey = '';
+		}
+	}
+
+	function onSubcategoryChange() {
+		const sub = subcategories.find((s) => s.key === subcategoryKey);
+		if (!sub) return;
+		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
+		if (cat) categoryId = cat.id;
 	}
 </script>
 
@@ -27,7 +56,16 @@
 <div class="register-page">
 	<div class="top-bar">
 		<a href="/" class="back-link" aria-label="Volver">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+				stroke-linecap="round"
+				stroke-linejoin="round"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -121,6 +159,7 @@
 						id="categoryIdSelect"
 						name="categoryId"
 						bind:value={categoryId}
+						onchange={() => selectCategory(categoryId)}
 						class="category-select"
 					>
 						<option value="" disabled>O elige de la lista completa...</option>
@@ -131,7 +170,42 @@
 						{/each}
 					</select>
 					<div class="select-arrow">
-						<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
+							<polyline points="6 9 12 15 18 9" />
+						</svg>
+					</div>
+				</div>
+
+				<!-- Subcategoría (opcional), coherente con la categoría elegida -->
+				<div class="select-wrapper">
+					<select
+						id="subcategoryKeySelect"
+						name="subcategoryKey"
+						bind:value={subcategoryKey}
+						onchange={onSubcategoryChange}
+						class="category-select"
+					>
+						<option value="">Subcategoría (pendiente de revisión)</option>
+						{#each subcatsForCategory(categoryId) as sub (sub.key)}
+							<option value={sub.key}>{sub.name}</option>
+						{/each}
+					</select>
+					<div class="select-arrow">
+						<svg
+							width="18"
+							height="18"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2"
+						>
 							<polyline points="6 9 12 15 18 9" />
 						</svg>
 					</div>
@@ -141,11 +215,7 @@
 
 		<!-- Más opciones (colapsable) -->
 		<div class="more-section">
-			<button
-				type="button"
-				class="more-toggle"
-				onclick={() => (showMore = !showMore)}
-			>
+			<button type="button" class="more-toggle" onclick={() => (showMore = !showMore)}>
 				<span>{showMore ? 'Menos opciones' : 'Más opciones (comercio, nota, fecha)'}</span>
 				<svg
 					width="16"
@@ -176,13 +246,7 @@
 
 					<div class="field">
 						<label for="date" class="field-label">Fecha</label>
-						<input
-							type="date"
-							id="date"
-							name="date"
-							bind:value={date}
-							class="input-field"
-						/>
+						<input type="date" id="date" name="date" bind:value={date} class="input-field" />
 					</div>
 
 					<div class="field">
@@ -202,7 +266,7 @@
 
 		<!-- Botón guardar -->
 		<div class="submit-wrapper">
-			<button type="submit" class="btn-primary w-full save-btn" disabled={submitting}>
+			<button type="submit" class="save-btn btn-primary w-full" disabled={submitting}>
 				{submitting ? 'Guardando...' : 'Guardar movimiento'}
 			</button>
 		</div>

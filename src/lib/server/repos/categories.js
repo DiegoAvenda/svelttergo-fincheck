@@ -8,11 +8,7 @@ import { getDb } from '$lib/server/db.js';
  */
 export async function getCategoriesByUser(userId) {
 	const db = await getDb();
-	return db
-		.collection('categories')
-		.find({ userId })
-		.sort({ isSystem: -1, name: 1 })
-		.toArray();
+	return db.collection('categories').find({ userId }).sort({ isSystem: -1, name: 1 }).toArray();
 }
 
 /**
@@ -78,7 +74,9 @@ export async function updateCategory(userId, id, updates) {
 export async function deleteCategory(userId, id) {
 	const db = await getDb();
 	const { ObjectId } = await import('mongodb');
-	return db.collection('categories').deleteOne({ _id: new ObjectId(id), userId, isSystem: { $ne: true } });
+	return db
+		.collection('categories')
+		.deleteOne({ _id: new ObjectId(id), userId, isSystem: { $ne: true } });
 }
 
 /**
@@ -95,6 +93,7 @@ export async function ensureFixedCategories(userId) {
 	const {
 		FIXED_CATEGORIES,
 		SYSTEM_CATEGORY_UNCLASSIFIED,
+		SYSTEM_CATEGORY_KEY,
 		normalizeCategoryName,
 		mapLegacyToFixed
 	} = await import('$lib/server/defaults/categories.js');
@@ -107,22 +106,35 @@ export async function ensureFixedCategories(userId) {
 	if (cats.length === 0) return stats;
 
 	const byNorm = new Map(cats.map((c) => [normalizeCategoryName(c.name), c]));
+	const byKey = new Map(cats.map((c) => [c.categoryKey || null, c]));
 
 	// 1. Asegurar sistema + 17 fijas (sin duplicar, tolerando acentos/caso).
-	const fixedNames = [...FIXED_CATEGORIES.map((c) => c.name), SYSTEM_CATEGORY_UNCLASSIFIED];
-	for (const name of fixedNames) {
-		if (!byNorm.has(normalizeCategoryName(name))) {
+	// Las fijas nuevas guardan `categoryKey` estable; las existentes se backfillean.
+	const fixedDefs = [
+		...FIXED_CATEGORIES.map((c) => ({ key: c.key, name: c.name })),
+		{ key: SYSTEM_CATEGORY_KEY, name: SYSTEM_CATEGORY_UNCLASSIFIED }
+	];
+	for (const def of fixedDefs) {
+		const existing = byKey.get(def.key) || byNorm.get(normalizeCategoryName(def.name));
+		if (!existing) {
 			const res = await db.collection('categories').insertOne({
 				userId,
-				name,
+				name: def.name,
+				categoryKey: def.key,
 				parentId: null,
 				isFavorite: false,
 				isHidden: false,
-				isSystem: name === SYSTEM_CATEGORY_UNCLASSIFIED,
+				isSystem: def.key === SYSTEM_CATEGORY_KEY,
 				createdAt: new Date()
 			});
-			byNorm.set(normalizeCategoryName(name), { _id: res.insertedId, name });
+			byNorm.set(normalizeCategoryName(def.name), { _id: res.insertedId, name: def.name });
+			byKey.set(def.key, { _id: res.insertedId, name: def.name });
 			stats.created++;
+		} else if (!existing.categoryKey) {
+			await db
+				.collection('categories')
+				.updateOne({ _id: existing._id, userId }, { $set: { categoryKey: def.key } });
+			byKey.set(def.key, existing);
 		}
 	}
 
@@ -144,18 +156,17 @@ export async function ensureFixedCategories(userId) {
 		const m1 = await db
 			.collection('movements')
 			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
-		const m2 = await db.collection('movements').updateMany(
-			{ userId, 'items.categoryId': legacyId },
-			{ $set: { 'items.$[el].categoryId': targetId } },
-			{ arrayFilters: [{ 'el.categoryId': legacyId }] }
-		);
+		const m2 = await db
+			.collection('movements')
+			.updateMany(
+				{ userId, 'items.categoryId': legacyId },
+				{ $set: { 'items.$[el].categoryId': targetId } },
+				{ arrayFilters: [{ 'el.categoryId': legacyId }] }
+			);
 		const m3 = await db
-			.collection('classification_memory')
-			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
-		const m4 = await db
 			.collection('item_corrections')
 			.updateMany({ userId, categoryId: legacyId }, { $set: { categoryId: targetId } });
-		stats.reassigned += m1.modifiedCount + m2.modifiedCount + m3.modifiedCount + m4.modifiedCount;
+		stats.reassigned += m1.modifiedCount + m2.modifiedCount + m3.modifiedCount;
 
 		const remaining = await db.collection('movements').countDocuments({
 			userId,
@@ -192,17 +203,18 @@ export async function categoryHasMovements(userId, categoryId) {
  * @param {string} userId
  */
 export async function seedDefaultCategories(userId) {
-	const { DEFAULT_CATEGORIES, SYSTEM_CATEGORY_UNCLASSIFIED } = await import(
-		'$lib/server/defaults/categories.js'
-	);
+	const { FIXED_CATEGORIES, SYSTEM_CATEGORY_UNCLASSIFIED, SYSTEM_CATEGORY_KEY } =
+		await import('$lib/server/defaults/categories.js');
 	const db = await getDb();
 
+	/** @type {any[]} */
 	const docs = [];
 
 	// Categoría de sistema
 	docs.push({
 		userId,
 		name: SYSTEM_CATEGORY_UNCLASSIFIED,
+		categoryKey: SYSTEM_CATEGORY_KEY,
 		parentId: null,
 		isFavorite: false,
 		isHidden: false,
@@ -210,45 +222,20 @@ export async function seedDefaultCategories(userId) {
 		createdAt: new Date()
 	});
 
-	for (const cat of DEFAULT_CATEGORIES) {
-		const parentDoc = {
+	for (const cat of FIXED_CATEGORIES) {
+		docs.push({
 			userId,
 			name: cat.name,
+			categoryKey: cat.key,
 			parentId: null,
 			isFavorite: false,
 			isHidden: false,
 			isSystem: false,
 			createdAt: new Date()
-		};
-		docs.push(parentDoc);
+		});
 	}
 
-	// Insertar padres primero
-	const result = await db.collection('categories').insertMany(docs);
-
-	// Ahora insertar hijos con sus parentIds
-	const childDocs = [];
-	let idx = 1; // Empezamos en 1 porque 0 es "Sin clasificar"
-
-	for (const cat of DEFAULT_CATEGORIES) {
-		const parentId = result.insertedIds[idx];
-		for (const child of cat.children) {
-			childDocs.push({
-				userId,
-				name: child.name,
-				parentId,
-				isFavorite: false,
-				isHidden: false,
-				isSystem: false,
-				createdAt: new Date()
-			});
-		}
-		idx++;
-	}
-
-	if (childDocs.length > 0) {
-		await db.collection('categories').insertMany(childDocs);
-	}
+	await db.collection('categories').insertMany(docs);
 }
 
 /**

@@ -11,7 +11,14 @@
 <div class="habit-detail-page">
 	<div class="top-bar">
 		<a href="/habitos?period={data.period}" class="back-link" aria-label="Volver a hábitos">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -33,11 +40,37 @@
 			<span class="m-val">{data.detail.count}</span>
 		</div>
 
-		<div class="metric-card card span-2">
+		<div class="metric-card span-2 card">
 			<span class="m-label">Promedio por compra</span>
 			<span class="m-val">{formatMoney(data.detail.avgCents)}</span>
 		</div>
 	</div>
+
+	<!-- Desglose por subcategoría: gasto acumulado y % dentro de la categoría -->
+	{#if data.detail.subcategories && data.detail.subcategories.length > 0}
+		<section class="section">
+			<h2 class="section-title">Subcategorías</h2>
+			<div class="list-card card">
+				{#each data.detail.subcategories as sub, i (sub.subcategoryKey ?? 'pendiente')}
+					{#if i > 0}
+						<div class="divider"></div>
+					{/if}
+					<div class="subcat-row">
+						<div class="subcat-info">
+							<div class="subcat-top">
+								<span class="row-name">{sub.subcategoryName}</span>
+								<span class="row-val">{formatMoney(sub.totalCents)}</span>
+							</div>
+							<div class="subcat-bar-track">
+								<div class="subcat-bar" style="width: {sub.pctOfCategory}%;"></div>
+							</div>
+						</div>
+						<span class="subcat-pct">{sub.pctOfCategory}%</span>
+					</div>
+				{/each}
+			</div>
+		</section>
+	{/if}
 
 	<!-- Principales comercios -->
 	{#if data.detail.topMerchants.length > 0}
@@ -200,6 +233,48 @@
 	.item-count {
 		font-size: 0.75rem;
 		color: var(--app-text-secondary);
+	}
+
+	.subcat-row {
+		display: flex;
+		align-items: center;
+		gap: 0.75rem;
+		padding: 0.875rem 1.125rem;
+	}
+
+	.subcat-info {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.subcat-top {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		margin-bottom: 0.375rem;
+		gap: 0.5rem;
+	}
+
+	.subcat-bar-track {
+		width: 100%;
+		height: 0.3125rem;
+		background: var(--input-bg);
+		border-radius: var(--radius-full);
+		overflow: hidden;
+	}
+
+	.subcat-bar {
+		height: 100%;
+		background: var(--color-primary-400);
+		border-radius: var(--radius-full);
+	}
+
+	.subcat-pct {
+		font-size: 0.8125rem;
+		font-weight: 700;
+		color: var(--app-text-secondary);
+		font-variant-numeric: tabular-nums;
+		flex-shrink: 0;
 	}
 
 	.divider {

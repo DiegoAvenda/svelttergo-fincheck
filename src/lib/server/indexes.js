@@ -18,9 +18,8 @@ export async function ensureIndexes() {
 		// Settings
 		db.collection('settings').createIndex({ userId: 1 }, { unique: true }),
 
-		// Classification memory
-		db
-			.collection('classification_memory')
-			.createIndex({ userId: 1, normalizedDescription: 1 }, { unique: true })
+		// Item corrections (solo ambigüedades aclaradas por el usuario)
+		db.collection('item_corrections').createIndex({ userId: 1, itemCode: 1 }),
+		db.collection('item_corrections').createIndex({ userId: 1, store: 1, normalizedDescription: 1 })
 	]);
 }
