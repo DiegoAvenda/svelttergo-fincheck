@@ -7,7 +7,7 @@
 </script>
 
 <svelte:head>
-	<title>¡Te damos la bienvenida! — Fincheck</title>
+	<title>¡Te damos la bienvenida! — contlana</title>
 </svelte:head>
 
 <div class="welcome-wrapper">

@@ -139,7 +139,7 @@
 </script>
 
 <svelte:head>
-	<title>Escanear ticket — Fincheck</title>
+	<title>Escanear ticket — contlana</title>
 </svelte:head>
 
 <div class="scan-page">

@@ -5,7 +5,7 @@
 </script>
 
 <svelte:head>
-	<title>Iniciar sesión — Fincheck</title>
+	<title>Iniciar sesión — contlana</title>
 </svelte:head>
 
 <div class="login-wrapper">
@@ -16,7 +16,7 @@
 					<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
 				</svg>
 			</div>
-			<h1 class="title">Fincheck</h1>
+			<h1 class="title">contlana</h1>
 			<p class="subtitle">Controla tus gastos cotidianos y entiende en qué hábitos se te va el dinero.</p>
 		</div>
 

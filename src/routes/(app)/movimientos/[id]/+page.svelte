@@ -55,7 +55,7 @@
 </script>
 
 <svelte:head>
-	<title>{data.movement.merchant || 'Movimiento'} — Fincheck</title>
+	<title>{data.movement.merchant || 'Movimiento'} — contlana</title>
 </svelte:head>
 
 <div class="detail-page">

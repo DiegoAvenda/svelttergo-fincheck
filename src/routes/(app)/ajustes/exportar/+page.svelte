@@ -2,7 +2,7 @@
 </script>
 
 <svelte:head>
-	<title>Exportar movimientos — Fincheck</title>
+	<title>Exportar movimientos — contlana</title>
 </svelte:head>
 
 <div class="export-page">
@@ -30,7 +30,7 @@
 			Obtén un archivo CSV con todos tus movimientos registrados, comercios, categorías, notas y el desglose de artículos de tus tickets.
 		</p>
 
-		<a href="/ajustes/exportar" download="fincheck-movimientos.csv" class="btn-primary w-full download-btn">
+		<a href="/ajustes/exportar" download="contlana-movimientos.csv" class="btn-primary w-full download-btn">
 			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 				<polyline points="7 10 12 15 17 10" />

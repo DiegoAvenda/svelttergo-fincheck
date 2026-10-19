@@ -16,7 +16,7 @@ export function getOpenRouterConfig() {
 	if (!models.includes('openrouter/free')) models.push('openrouter/free');
 	const appUrl = env.OPENROUTER_APP_URL || process.env.OPENROUTER_APP_URL || '';
 	const appTitle =
-		env.OPENROUTER_APP_TITLE || process.env.OPENROUTER_APP_TITLE || 'Fincheck Tickets';
+		env.OPENROUTER_APP_TITLE || process.env.OPENROUTER_APP_TITLE || 'contlana Tickets';
 	const timeoutMs = Number(env.OPENROUTER_TIMEOUT_MS || process.env.OPENROUTER_TIMEOUT_MS || 60000);
 	const reasoningEffort =
 		env.OPENROUTER_REASONING_EFFORT || process.env.OPENROUTER_REASONING_EFFORT || 'none';

@@ -1,7 +1,7 @@
 import { getDb } from '$lib/server/db.js';
 
 /**
- * Crea los índices necesarios para las colecciones de Fincheck.
+ * Crea los índices necesarios para las colecciones de contlana.
  * Se ejecuta una vez al inicio de la app.
  */
 export async function ensureIndexes() {

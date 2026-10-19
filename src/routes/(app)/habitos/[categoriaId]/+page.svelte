@@ -5,7 +5,7 @@
 </script>
 
 <svelte:head>
-	<title>{data.categoryName} — Hábitos — Fincheck</title>
+	<title>{data.categoryName} — Hábitos — contlana</title>
 </svelte:head>
 
 <div class="habit-detail-page">

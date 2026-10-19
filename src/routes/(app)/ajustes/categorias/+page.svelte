@@ -22,7 +22,7 @@
 </script>
 
 <svelte:head>
-	<title>Categorías — Ajustes — Fincheck</title>
+	<title>Categorías — Ajustes — contlana</title>
 </svelte:head>
 
 <div class="categories-page">

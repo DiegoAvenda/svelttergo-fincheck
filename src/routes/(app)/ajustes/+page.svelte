@@ -11,7 +11,7 @@
 </script>
 
 <svelte:head>
-	<title>Ajustes — Fincheck</title>
+	<title>Ajustes — contlana</title>
 </svelte:head>
 
 <div class="settings-page">

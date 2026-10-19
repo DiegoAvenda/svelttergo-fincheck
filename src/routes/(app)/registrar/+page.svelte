@@ -50,7 +50,7 @@
 </script>
 
 <svelte:head>
-	<title>Registrar movimiento — Fincheck</title>
+	<title>Registrar movimiento — contlana</title>
 </svelte:head>
 
 <div class="register-page">

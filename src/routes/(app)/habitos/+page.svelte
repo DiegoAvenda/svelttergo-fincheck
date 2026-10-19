@@ -10,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>Hábitos de consumo — Fincheck</title>
+	<title>Hábitos de consumo — contlana</title>
 </svelte:head>
 
 <div class="habitos-page">

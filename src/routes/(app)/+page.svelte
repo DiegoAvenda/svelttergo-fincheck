@@ -9,7 +9,7 @@
 </script>
 
 <svelte:head>
-	<title>Inicio — Fincheck</title>
+	<title>Inicio — contlana</title>
 </svelte:head>
 
 <div class="home-page">

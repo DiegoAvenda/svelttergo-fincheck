@@ -73,7 +73,7 @@
 </script>
 
 <svelte:head>
-	<title>Movimientos — Fincheck</title>
+	<title>Movimientos — contlana</title>
 </svelte:head>
 
 <div class="movimientos-page">
