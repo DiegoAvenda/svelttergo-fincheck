@@ -29,6 +29,6 @@
 		width: 100%;
 		max-width: 32rem;
 		margin: 0 auto;
-		padding: 1rem 1rem 5.5rem;
+		padding: calc(5.5rem + env(safe-area-inset-top, 0)) 1rem 1rem;
 	}
 </style>
