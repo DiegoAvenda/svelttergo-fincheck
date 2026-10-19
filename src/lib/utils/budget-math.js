@@ -60,16 +60,19 @@ export function lineProgressPct(spentCents, plannedCents) {
 
 /**
  * Agrupa las líneas por categoría y suma lo planeado de cada una.
- * Sirve igual para líneas a nivel categoría (`subcategoryKey: null`) y por
- * subcategoría: lo que importa es el total planeado por categoría.
- * @param {Array<{ categoryId?: { toString(): string }|string, plannedCents?: number }>} [lines]
- * @returns {Map<string, number>} categoryId (string) -> centavos planeados
+ * Sirve igual para líneas a nivel categoría (`subcategoryKey: null`), por
+ * subcategoría y para categorías personalizadas (`customKey`).
+ * @param {Array<{ categoryId?: { toString(): string }|string|null, customKey?: string|null, plannedCents?: number }>} [lines]
+ * @returns {Map<string, number>} clave de categoría (string) -> centavos planeados
  */
 export function plannedCentsByCategory(lines) {
 	/** @type {Map<string, number>} */
 	const map = new Map();
 	for (const line of lines || []) {
-		const id = line?.categoryId?.toString?.() ?? (line?.categoryId ? String(line.categoryId) : '');
+		const id =
+			line?.categoryId?.toString?.() ??
+			line?.customKey ??
+			(line?.categoryId ? String(line.categoryId) : '');
 		if (!id) continue;
 		map.set(id, (map.get(id) || 0) + (Number(line?.plannedCents) || 0));
 	}
@@ -93,30 +96,48 @@ export function plannedCategoryCount(lines) {
  * Convierte las entradas de un FormData de presupuesto en líneas planas.
  *
  * Nombres esperados de los campos:
- *   `general|<categoryId>`            -> monto general de la categoría (subcategoryKey null)
+ *   `general|<categoryId>`              -> monto general de la categoría (subcategoryKey null)
  *   `sub|<categoryId>|<subcategoryKey>` -> monto de esa subcategoría
+ *   `customName|<customKey>`            -> nombre de una categoría personalizada
+ *   `custom|<customKey>`                -> monto de esa categoría personalizada
  *
  * Reglas:
- *  - Una categoría está "incluida" si llega su campo `general|...` (aunque sea 0).
+ *  - Una categoría del catálogo está "incluida" si llega su campo `general|...` (aunque sea 0).
  *  - Solo se conservan subcategorías de categorías incluidas.
  *  - Las subcategorías vacías se omiten (no se guardan como 0).
+ *  - Una categoría personalizada se incluye si su nombre llega con texto (el monto vacío = 0).
  *  - Se ignora cualquier categoría/subcategoría que no pase la validación.
  *
  * @param {Iterable<[string, any]>} entries
  * @param {{
  *   isValidCategory?: (categoryId: string) => boolean,
- *   isValidSubcategory?: (categoryId: string, subcategoryKey: string) => boolean
+ *   isValidSubcategory?: (categoryId: string, subcategoryKey: string) => boolean,
+ *   maxCustomNameLength?: number
  * }} [options]
- * @returns {{ lines: Array<{ categoryId: string, subcategoryKey: string|null, plannedCents: number }>, hasErrors: boolean }}
+ * @returns {{
+ *   lines: Array<{
+ *     categoryId: string|null,
+ *     subcategoryKey: string|null,
+ *     plannedCents: number,
+ *     customKey?: string,
+ *     customName?: string
+ *   }>,
+ *   hasErrors: boolean
+ * }}
  */
 export function buildBudgetLinesFromForm(entries, options = {}) {
 	const isValidCategory = options.isValidCategory ?? (() => true);
 	const isValidSubcategory = options.isValidSubcategory ?? (() => true);
+	const maxCustomNameLength = options.maxCustomNameLength ?? 60;
 
 	/** @type {Map<string, number>} */
 	const general = new Map();
 	/** @type {Array<{ categoryId: string, subcategoryKey: string, plannedCents: number }>} */
 	const subs = [];
+	/** @type {Map<string, string>} */
+	const customNames = new Map();
+	/** @type {Map<string, number>} */
+	const customAmounts = new Map();
 	let hasErrors = false;
 
 	for (const [rawName, rawValue] of entries) {
@@ -147,16 +168,47 @@ export function buildBudgetLinesFromForm(entries, options = {}) {
 			}
 			if (cents <= 0) continue;
 			subs.push({ categoryId: id, subcategoryKey, plannedCents: cents });
+			continue;
+		}
+
+		if (parts[0] === 'customName' && parts[1]) {
+			customNames.set(parts[1], value.slice(0, maxCustomNameLength));
+			continue;
+		}
+
+		if (parts[0] === 'custom' && parts[1]) {
+			const cents = value === '' ? 0 : parseAmountToCents(value);
+			if (cents === null || cents < 0) {
+				hasErrors = true;
+				continue;
+			}
+			customAmounts.set(parts[1], cents);
 		}
 	}
 
-	/** @type {Array<{ categoryId: string, subcategoryKey: string|null, plannedCents: number }>} */
+	/** @type {Array<{
+	 *   categoryId: string|null,
+	 *   subcategoryKey: string|null,
+	 *   plannedCents: number,
+	 *   customKey?: string,
+	 *   customName?: string
+	 * }>} */
 	const lines = [];
 	for (const [id, cents] of general) {
 		lines.push({ categoryId: id, subcategoryKey: null, plannedCents: cents });
 	}
 	for (const s of subs) {
 		if (general.has(s.categoryId)) lines.push(s);
+	}
+	for (const [key, name] of customNames) {
+		if (!name) continue;
+		lines.push({
+			categoryId: null,
+			customKey: key,
+			customName: name,
+			subcategoryKey: null,
+			plannedCents: customAmounts.get(key) ?? 0
+		});
 	}
 
 	return { lines, hasErrors };

@@ -1,19 +1,11 @@
 import { fail, redirect } from '@sveltejs/kit';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { createMovement, getRecentMovements } from '$lib/server/repos/movements.js';
+import { buildCatalogForUser } from '$lib/server/repos/custom-catalog.js';
 import { parseAmountToCents } from '$lib/utils/money.js';
 import { todayInMX } from '$lib/utils/periods.js';
 import { ObjectId } from 'mongodb';
-import {
-	buildCategoryIdByKeyMap,
-	buildCategoryKeyByIdMap,
-	categoryKeyOfDoc
-} from '$lib/server/defaults/categories.js';
-import {
-	SUBCATEGORIES,
-	getCategoryKeyOfSubcategory,
-	sanitizeSubcategoryKey
-} from '$lib/server/defaults/subcategories.js';
+import { buildCategoryKeyByIdMap, categoryKeyOfDoc } from '$lib/server/defaults/categories.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -47,7 +39,8 @@ export const load = async (event) => {
 		categoryKey: categoryKeyOfDoc(c),
 		parentId: c.parentId ? c.parentId.toString() : null,
 		isFavorite: !!c.isFavorite,
-		isSystem: !!c.isSystem
+		isSystem: !!c.isSystem,
+		isCustom: !!c.isCustom
 	}));
 
 	// Top chips: favoritas primero, luego las más usadas
@@ -62,15 +55,19 @@ export const load = async (event) => {
 		})
 		.slice(0, 8);
 
+	// Subcategorías del catálogo fijo + las personalizadas del usuario.
+	const catalog = await buildCatalogForUser(userId, categories);
+
 	const todayStr = todayInMX().toISOString().slice(0, 10);
 
 	return {
 		categories: serializedCategories,
 		quickChips: favoriteOrFrequent,
-		subcategories: SUBCATEGORIES.map((s) => ({
+		subcategories: catalog.subs.map((s) => ({
 			key: s.key,
 			name: s.name,
-			categoryKey: s.categoryKey
+			categoryId: s.categoryId,
+			isCustom: !!s.isCustom
 		})),
 		todayStr
 	};
@@ -119,23 +116,26 @@ export const actions = {
 		}
 
 		// Derivar la categoría principal desde la subcategoría y validar coherencia.
+		// La subcategoría puede ser del catálogo fijo o personalizada del usuario.
 		const categories = await getVisibleCategories(userId);
-		const categoryIdByKey = buildCategoryIdByKeyMap(categories);
 		const categoryKeyById = buildCategoryKeyByIdMap(categories);
+		const catalog = await buildCatalogForUser(userId, categories);
 
-		let subcategoryKey = sanitizeSubcategoryKey(subcategoryKeyStr);
-		const subCategoryKey = subcategoryKey ? getCategoryKeyOfSubcategory(subcategoryKey) : null;
+		const rawSubKey = subcategoryKeyStr.trim();
+		let subcategoryKey = rawSubKey && catalog.labelByKey.has(rawSubKey) ? rawSubKey : null;
+		const subCategoryId = subcategoryKey
+			? (catalog.categoryIdBySubKey.get(subcategoryKey) ?? null)
+			: null;
 
 		let categoryId = null;
 		let categoryKey = null;
-		if (subCategoryKey) {
-			categoryId = categoryIdByKey.get(subCategoryKey) ?? null;
-			categoryKey = subCategoryKey;
+		if (subCategoryId) {
+			categoryId = new ObjectId(subCategoryId);
+			categoryKey = categoryKeyById.get(subCategoryId) ?? null;
 		}
 
 		if (type === 'expense' && subcategoryKey && categoryIdStr) {
-			const providedKey = categoryKeyById.get(categoryIdStr) ?? null;
-			if (providedKey && subCategoryKey && providedKey !== subCategoryKey) {
+			if (subCategoryId && subCategoryId !== categoryIdStr) {
 				return fail(400, {
 					error: 'La subcategoría no pertenece a la categoría seleccionada.',
 					values: {

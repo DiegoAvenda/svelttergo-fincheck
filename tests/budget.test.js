@@ -82,6 +82,17 @@ test('Budget math utilities', async (t) => {
 		assert.equal(plannedCategoryCount(lines), 2);
 		assert.equal(plannedCategoryCount([]), 0);
 	});
+
+	await t.test('plannedCentsByCategory agrupa también por customKey', () => {
+		const map = plannedCentsByCategory([
+			{ categoryId: null, customKey: 'renta', plannedCents: 300000 },
+			{ categoryId: null, customKey: 'renta', plannedCents: 0 },
+			{ categoryId: null, customKey: 'colegiatura', plannedCents: 150000 }
+		]);
+		assert.equal(map.get('renta'), 300000);
+		assert.equal(map.get('colegiatura'), 150000);
+		assert.equal(plannedCategoryCount([{ customKey: 'x', plannedCents: 100 }]), 1);
+	});
 });
 
 test('Parseo del formulario del presupuesto', async (t) => {
@@ -139,5 +150,58 @@ test('Parseo del formulario del presupuesto', async (t) => {
 			{ categoryId: 'cat1', subcategoryKey: null, plannedCents: 10000 },
 			{ categoryId: 'cat2', subcategoryKey: null, plannedCents: 20000 }
 		]);
+	});
+
+	await t.test('construye categorías personalizadas con nombre y monto', () => {
+		const { lines, hasErrors } = buildBudgetLinesFromForm([
+			['general|cat1', '1000'],
+			['customName|c1', 'Renta'],
+			['custom|c1', '8500'],
+			['customName|c2', 'Colegiatura']
+		]);
+		assert.equal(hasErrors, false);
+		assert.deepEqual(lines, [
+			{ categoryId: 'cat1', subcategoryKey: null, plannedCents: 100000 },
+			{
+				categoryId: null,
+				customKey: 'c1',
+				customName: 'Renta',
+				subcategoryKey: null,
+				plannedCents: 850000
+			},
+			{
+				categoryId: null,
+				customKey: 'c2',
+				customName: 'Colegiatura',
+				subcategoryKey: null,
+				plannedCents: 0
+			}
+		]);
+	});
+
+	await t.test('ignora categorías personalizadas sin nombre y reporta monto inválido', () => {
+		const { lines, hasErrors } = buildBudgetLinesFromForm([
+			['customName|c1', '   '],
+			['custom|c1', '500'],
+			['customName|c2', 'Gym'],
+			['custom|c2', 'abc']
+		]);
+		assert.equal(hasErrors, true);
+		assert.deepEqual(lines, [
+			{
+				categoryId: null,
+				customKey: 'c2',
+				customName: 'Gym',
+				subcategoryKey: null,
+				plannedCents: 0
+			}
+		]);
+	});
+
+	await t.test('recorta el nombre de la categoría personalizada', () => {
+		const { lines } = buildBudgetLinesFromForm([['customName|c1', 'x'.repeat(80)]], {
+			maxCustomNameLength: 60
+		});
+		assert.equal(lines[0].customName.length, 60);
 	});
 });

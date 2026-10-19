@@ -28,7 +28,14 @@
 <div class="categories-page">
 	<div class="top-bar">
 		<a href="/ajustes" class="back-link" aria-label="Volver a ajustes">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -52,15 +59,17 @@
 	<!-- Formulario para crear categoría -->
 	{#if showNewModal}
 		<div class="new-cat-card card">
-			<h3 class="new-title">Crear nueva categoría</h3>
+			<h3 class="new-title">Crear categoría o subcategoría</h3>
 			<form
 				method="post"
 				action="?/create"
 				use:enhance={() => {
-					return async ({ update }) => {
-						showNewModal = false;
-						newName = '';
-						newParentId = '';
+					return async ({ result, update }) => {
+						if (result.type === 'success') {
+							showNewModal = false;
+							newName = '';
+							newParentId = '';
+						}
 						await update();
 					};
 				}}
@@ -82,14 +91,9 @@
 
 				<div class="field">
 					<label for="newCatParent" class="field-label">Pertenece a (opcional)</label>
-					<select
-						id="newCatParent"
-						name="parentId"
-						bind:value={newParentId}
-						class="input-field"
-					>
+					<select id="newCatParent" name="parentId" bind:value={newParentId} class="input-field">
 						<option value="">Categoría principal (sin padre)</option>
-						{#each data.parentOptions as p}
+						{#each data.parentOptions as p (p.id)}
 							<option value={p.id}>{p.name}</option>
 						{/each}
 					</select>
@@ -99,9 +103,7 @@
 					<button type="button" class="btn-secondary" onclick={() => (showNewModal = false)}>
 						Cancelar
 					</button>
-					<button type="submit" class="btn-primary">
-						Guardar categoría
-					</button>
+					<button type="submit" class="btn-primary"> Guardar categoría </button>
 				</div>
 			</form>
 		</div>
@@ -109,7 +111,7 @@
 
 	<!-- Lista jerárquica de categorías -->
 	<div class="tree-list">
-		{#each data.categoriesTree as parent}
+		{#each data.categoriesTree as parent (parent.id)}
 			<div class="parent-card card" class:hidden-cat={parent.isHidden}>
 				<div class="parent-row">
 					<div class="cat-left">
@@ -126,12 +128,21 @@
 								class="rename-form"
 							>
 								<input type="hidden" name="id" value={parent.id} />
-								<input type="text" name="name" bind:value={editingName} class="rename-input" required />
+								<input
+									type="text"
+									name="name"
+									bind:value={editingName}
+									class="rename-input"
+									required
+								/>
 								<button type="submit" class="btn-inline save">✓</button>
 								<button type="button" class="btn-inline cancel" onclick={cancelEditing}>✕</button>
 							</form>
 						{:else}
 							<span class="cat-name">{parent.name}</span>
+							{#if parent.isCustom}
+								<span class="custom-badge">Personalizada</span>
+							{/if}
 							{#if parent.isHidden}
 								<span class="hidden-badge">Oculta</span>
 							{/if}
@@ -143,7 +154,12 @@
 						<form method="post" action="?/toggleFavorite" use:enhance>
 							<input type="hidden" name="id" value={parent.id} />
 							<input type="hidden" name="current" value={parent.isFavorite} />
-							<button type="submit" class="icon-action-btn" class:active={parent.isFavorite} title="Marcar favorita">
+							<button
+								type="submit"
+								class="icon-action-btn"
+								class:active={parent.isFavorite}
+								title="Marcar favorita"
+							>
 								{parent.isFavorite ? '★' : '☆'}
 							</button>
 						</form>
@@ -152,14 +168,34 @@
 						<form method="post" action="?/toggleHidden" use:enhance>
 							<input type="hidden" name="id" value={parent.id} />
 							<input type="hidden" name="current" value={parent.isHidden} />
-							<button type="submit" class="icon-action-btn" title={parent.isHidden ? 'Mostrar' : 'Ocultar'}>
+							<button
+								type="submit"
+								class="icon-action-btn"
+								title={parent.isHidden ? 'Mostrar' : 'Ocultar'}
+							>
 								{#if parent.isHidden}
-									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-										<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+									<svg
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<path
+											d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"
+										/>
 										<line x1="1" y1="1" x2="23" y2="23" />
 									</svg>
 								{:else}
-									<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<svg
+										width="18"
+										height="18"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
 										<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
 										<circle cx="12" cy="12" r="3" />
 									</svg>
@@ -167,34 +203,55 @@
 							</button>
 						</form>
 
-						<!-- Editar nombre -->
-						<button type="button" class="icon-action-btn" onclick={() => startEditing(parent)} title="Renombrar">
-							<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-							</svg>
-						</button>
-
-						<!-- Eliminar -->
-						<form method="post" action="?/delete" use:enhance>
-							<input type="hidden" name="id" value={parent.id} />
-							<button type="submit" class="icon-action-btn danger" title="Eliminar">
-								<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-									<polyline points="3 6 5 6 21 6" />
-									<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+						{#if parent.isCustom}
+							<!-- Editar nombre -->
+							<button
+								type="button"
+								class="icon-action-btn"
+								onclick={() => startEditing(parent)}
+								title="Renombrar"
+							>
+								<svg
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+								>
+									<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
 								</svg>
 							</button>
-						</form>
+
+							<!-- Eliminar -->
+							<form method="post" action="?/delete" use:enhance>
+								<input type="hidden" name="id" value={parent.id} />
+								<button type="submit" class="icon-action-btn danger" title="Eliminar">
+									<svg
+										width="16"
+										height="16"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+									>
+										<polyline points="3 6 5 6 21 6" />
+										<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+									</svg>
+								</button>
+							</form>
+						{/if}
 					</div>
 				</div>
 
 				<!-- Subcategorías -->
 				{#if parent.subcategories.length > 0}
 					<div class="subs-container">
-						{#each parent.subcategories as sub}
-							<div class="sub-row" class:hidden-cat={sub.isHidden}>
+						{#each parent.subcategories as sub (sub.key)}
+							<div class="sub-row">
 								<div class="cat-left">
 									<span class="sub-bullet">└</span>
-									{#if editingId === sub.id}
+									{#if sub.isCustom && editingId === sub.id}
 										<form
 											method="post"
 											action="?/rename"
@@ -207,61 +264,64 @@
 											class="rename-form"
 										>
 											<input type="hidden" name="id" value={sub.id} />
-											<input type="text" name="name" bind:value={editingName} class="rename-input" required />
+											<input
+												type="text"
+												name="name"
+												bind:value={editingName}
+												class="rename-input"
+												required
+											/>
 											<button type="submit" class="btn-inline save">✓</button>
-											<button type="button" class="btn-inline cancel" onclick={cancelEditing}>✕</button>
+											<button type="button" class="btn-inline cancel" onclick={cancelEditing}
+												>✕</button
+											>
 										</form>
 									{:else}
 										<span class="sub-name">{sub.name}</span>
-										{#if sub.isHidden}
-											<span class="hidden-badge">Oculta</span>
+										{#if sub.isCustom}
+											<span class="custom-badge">Personalizada</span>
 										{/if}
 									{/if}
 								</div>
 
-								<div class="cat-actions">
-									<form method="post" action="?/toggleFavorite" use:enhance>
-										<input type="hidden" name="id" value={sub.id} />
-										<input type="hidden" name="current" value={sub.isFavorite} />
-										<button type="submit" class="icon-action-btn" class:active={sub.isFavorite}>
-											{sub.isFavorite ? '★' : '☆'}
-										</button>
-									</form>
-
-									<form method="post" action="?/toggleHidden" use:enhance>
-										<input type="hidden" name="id" value={sub.id} />
-										<input type="hidden" name="current" value={sub.isHidden} />
-										<button type="submit" class="icon-action-btn">
-											{#if sub.isHidden}
-												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94" />
-													<line x1="1" y1="1" x2="23" y2="23" />
-												</svg>
-											{:else}
-												<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-													<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-													<circle cx="12" cy="12" r="3" />
-												</svg>
-											{/if}
-										</button>
-									</form>
-
-									<button type="button" class="icon-action-btn" onclick={() => startEditing(sub)}>
-										<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-											<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-										</svg>
-									</button>
-
-									<form method="post" action="?/delete" use:enhance>
-										<input type="hidden" name="id" value={sub.id} />
-										<button type="submit" class="icon-action-btn danger">
-											<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-												<polyline points="3 6 5 6 21 6" />
-												<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+								{#if sub.isCustom}
+									<div class="cat-actions">
+										<button
+											type="button"
+											class="icon-action-btn"
+											onclick={() => startEditing(sub)}
+											title="Renombrar"
+										>
+											<svg
+												width="14"
+												height="14"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+											>
+												<path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
 											</svg>
 										</button>
-									</form>
-								</div>
+
+										<form method="post" action="?/delete" use:enhance>
+											<input type="hidden" name="id" value={sub.id} />
+											<button type="submit" class="icon-action-btn danger" title="Eliminar">
+												<svg
+													width="14"
+													height="14"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+												>
+													<polyline points="3 6 5 6 21 6" />
+													<path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6" />
+												</svg>
+											</button>
+										</form>
+									</div>
+								{/if}
 							</div>
 						{/each}
 					</div>
@@ -401,6 +461,17 @@
 		border-radius: var(--radius-sm);
 	}
 
+	.custom-badge {
+		font-size: 0.625rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--color-primary-600);
+		background: color-mix(in srgb, var(--color-primary-500) 12%, transparent);
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
+	}
+
 	.cat-actions {
 		display: flex;
 		align-items: center;
@@ -447,10 +518,6 @@
 		justify-content: space-between;
 		padding: 0.5rem 1.125rem 0.5rem 1.75rem;
 		gap: 0.5rem;
-
-		&.hidden-cat {
-			opacity: 0.6;
-		}
 	}
 
 	.sub-bullet {

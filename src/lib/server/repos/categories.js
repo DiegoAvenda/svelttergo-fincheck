@@ -1,6 +1,6 @@
 import { getDb } from '$lib/server/db.js';
 
-/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, name: string, parentId: string|null, isFavorite: boolean, isHidden: boolean, isSystem: boolean, createdAt: Date }} Category */
+/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, name: string, parentId: string|null, categoryKey?: string|null, isFavorite: boolean, isHidden: boolean, isSystem: boolean, isCustom?: boolean, createdAt: Date }} Category */
 
 /**
  * @param {string} userId
@@ -38,7 +38,7 @@ export async function getCategoryById(userId, id) {
 
 /**
  * @param {string} userId
- * @param {{ name: string, parentId?: string|null, isFavorite?: boolean, isHidden?: boolean, isSystem?: boolean }} data
+ * @param {{ name: string, parentId?: string|null, categoryKey?: string|null, isFavorite?: boolean, isHidden?: boolean, isSystem?: boolean, isCustom?: boolean }} data
  * @returns {Promise<import('mongodb').InsertOneResult>}
  */
 export async function createCategory(userId, data) {
@@ -47,11 +47,27 @@ export async function createCategory(userId, data) {
 		userId,
 		name: data.name,
 		parentId: data.parentId || null,
+		categoryKey: data.categoryKey ?? null,
 		isFavorite: data.isFavorite ?? false,
 		isHidden: data.isHidden ?? false,
 		isSystem: data.isSystem ?? false,
+		isCustom: data.isCustom ?? false,
 		createdAt: new Date()
 	});
+}
+
+/**
+ * Categorías personalizadas del usuario (creadas por él).
+ * @param {string} userId
+ * @returns {Promise<Category[]>}
+ */
+export async function getCustomCategories(userId) {
+	const db = await getDb();
+	return db
+		.collection('categories')
+		.find({ userId, isCustom: true, parentId: null })
+		.sort({ name: 1 })
+		.toArray();
 }
 
 /**
@@ -105,7 +121,9 @@ export async function ensureFixedCategories(userId) {
 	// Usuario nuevo: el onboarding (bienvenida) hace el seed completo.
 	if (cats.length === 0) return stats;
 
-	const byNorm = new Map(cats.map((c) => [normalizeCategoryName(c.name), c]));
+	const byNorm = new Map(
+		cats.filter((c) => !c.isCustom).map((c) => [normalizeCategoryName(c.name), c])
+	);
 	const byKey = new Map(cats.map((c) => [c.categoryKey || null, c]));
 
 	// 1. Asegurar sistema + 17 fijas (sin duplicar, tolerando acentos/caso).
@@ -144,7 +162,7 @@ export async function ensureFixedCategories(userId) {
 	// 2-3. Reasignar legacy -> fija y borrar huérfanas.
 	for (const cat of cats) {
 		const n = normalizeCategoryName(cat.name);
-		if (cat.isSystem || n === systemNorm || fixedSet.has(n)) continue;
+		if (cat.isSystem || cat.isCustom || n === systemNorm || fixedSet.has(n)) continue;
 		const targetName = mapLegacyToFixed(cat.name);
 		const target = byNorm.get(normalizeCategoryName(targetName));
 		if (!target || target._id.toString() === cat._id.toString()) continue;

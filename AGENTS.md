@@ -163,29 +163,48 @@ Colecciones propias (además de las de better-auth: `user`, `session`, `account`
 
 - **`movements`**: `{ userId, type: 'expense'|'income', amountCents, date, merchant, categoryId, subcategoryKey, categoryKey, note, source: 'manual'|'ticket', items: [{ originalDescription, amountCents, categoryId, subcategoryKey }] }`.
   Los tickets con desglose dejan `categoryId = null` y reparten el gasto en `items`.
-- **`categories`**: catálogo del usuario. `{ userId, name, categoryKey, parentId, isFavorite, isHidden, isSystem }`.
+- **`categories`**: catálogo del usuario. `{ userId, name, categoryKey, parentId, isFavorite, isHidden, isSystem, isCustom }`.
+- **`user_subcategories`**: subcategorías personalizadas. `{ userId, categoryId, key, name, isCustom, createdAt }`.
 - **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, monthStartDay }`.
 - **`item_corrections`**: aprendizaje de ítems ambiguos de tickets.
-- **`budgets`**: uno por usuario (índice único). `{ userId, lines: [{ categoryId, plannedCents }] }` = gastos **planeados**.
+- **`budgets`**: uno por usuario (índice único). `{ userId, lines: [{ categoryId, subcategoryKey, plannedCents }] }` = gastos **planeados**.
 
 `ensureIndexes()` (`src/lib/server/indexes.js`) crea los índices; corre una vez
 por proceso desde `(app)/+layout.server.js`.
 
 ## Dominio: categorías y subcategorías (regla dura)
 
-- El catálogo es **fijo**: 17 categorías + "Sin clasificar" (sistema) en
-  `src/lib/server/defaults/categories.js`. Las subcategorías, con `key` estable,
-  están en `src/lib/server/defaults/subcategories.js`.
+- El catálogo **fijo** son 17 categorías + "Sin clasificar" (sistema) en
+  `src/lib/server/defaults/categories.js`. Las subcategorías fijas, con `key`
+  estable, están en `src/lib/server/defaults/subcategories.js`.
+- **Categorías/subcategorías personalizadas**: además del catálogo fijo, el
+  usuario puede crear las suyas. Una categoría personalizada es un doc real de
+  `categories` con `isCustom: true` y `categoryKey: 'custom-<uuid>'`. Una
+  subcategoría personalizada vive en `user_subcategories`, cuelga de un
+  `categoryId` (fijo o personalizado) y su `subcategoryKey` en movimientos es
+  `custom-<uuid>`. Su lógica está en `src/lib/server/repos/custom-catalog.js`
+  (`createCustomCategory`, `createCustomSubcategory`, `deleteCustomCategory`,
+  `deleteCustomSubcategory`, `buildCatalogForUser`).
+- Para resolver subcategorías (fijas + personalizadas) usa
+  `buildCatalogForUser(userId, categories)` o la util pura
+  `groupSubcategories` (`src/lib/utils/subcategory-catalog.js`). **No combines a
+  mano** el catálogo fijo con el del usuario.
 - **La IA nunca crea, renombra ni borra categorías.** Solo puede elegir `key`s
-  existentes del catálogo; de la subcategoría se deriva la categoría principal
-  (`getCategoryKeyOfSubcategory`).
+  fijas existentes; de la subcategoría se deriva la categoría principal
+  (`getCategoryKeyOfSubcategory`). Las subcategorías personalizadas las elige el
+  usuario en la revisión, no la IA.
 - Usa `categoryKey` (string estable) para lógica; los nombres visibles pueden
   cambiar. Nunca hagas `if` sobre el nombre de la categoría.
 - `ensureFixedCategories(userId)` se ejecuta en cada request a `(app)` y
-  auto-migra categorías legacy de forma idempotente. No borres categorías con
-  movimientos ni la de sistema.
-- `ajustes/categorias` **no** permite crear/renombrar/borrar (el catálogo es
-  fijo); solo favoritos y ocultar. No reactives esas acciones.
+  auto-migra categorías legacy de forma idempotente. **Ignora `isCustom`** (no
+  borra lo del usuario). No borres categorías con movimientos ni la de sistema.
+- Borrar una categoría/subcategoría personalizada **reasigna** sus movimientos,
+  ítems y correcciones a "Sin clasificar" (no bloquea, no pierde datos) y limpia
+  las líneas de presupuesto que la usaban. Las del catálogo fijo **no** se pueden
+  borrar ni renombrar.
+- `ajustes/categorias` permite crear (categoría o subcategoría bajo un padre),
+  renombrar y borrar **solo** lo personalizado; favoritos/ocultar aplican a las
+  categorías. Las subcategorías del catálogo fijo se muestran sin acciones.
 - Cuando agregues una categoría o subcategoría al catálogo, corre/actualiza
   `tests/subcategories.test.js` (valida coherencia key ↔ categoría).
 
@@ -207,15 +226,21 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 - La pantalla `/presupuesto` lista por defecto **todas** las categorías de gasto
   (cuando el usuario aún no guarda un presupuesto). Cada categoría es expandible a
   sus **subcategorías** (con un chevron). El usuario asigna monto a la categoría
-  ("General") o a subcategorías, borra categorías o re-agrega. Una vez guardado,
+  ("General") o a subcategorías, borra categorías, re-agrega del catálogo o
+  **crea categorías personalizadas** con nombre propio. Una vez guardado,
   `budget.lines` es la fuente de verdad de qué categorías están en la lista.
-- Forma de cada línea: `{ categoryId, subcategoryKey: string|null, plannedCents }`.
+- Forma de cada línea del catálogo:
+  `{ categoryId, subcategoryKey: string|null, plannedCents }`.
   `subcategoryKey: null` = monto general de la categoría; una subcategoría es una
   línea aparte. El formulario usa nombres `general|<categoryId>` y
   `sub|<categoryId>|<subcategoryKey>` y se parsea con `buildBudgetLinesFromForm`.
   Los borrados y añadidos son estado de cliente; se persisten al guardar (el
   formulario reemplaza todas las líneas, y siempre incluye un `general|` por
   categoría incluida aunque sea 0).
+- **Categorías personalizadas**: son **categorías reales** (ver sección
+  siguiente), no etiquetas solo de presupuesto. Se crean desde el presupuesto o
+  desde Ajustes → Categorías y se comportan como cualquier otra: aparecen en
+  Registrar, Escanear y Movimientos, y reciben gasto real.
 - Lógica pura en `src/lib/utils/budget-math.js` (`sumPlannedCents`,
   `plannedCentsByCategory`, `plannedCategoryCount`, `buildBudgetLinesFromForm`,
   `remainingFromIncome`, `budgetUsedPct`, ...).

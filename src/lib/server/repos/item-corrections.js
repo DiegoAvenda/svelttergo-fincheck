@@ -100,11 +100,11 @@ export async function upsertItemCorrection(userId, data) {
 	const department = (data?.department || '').toString().trim() || null;
 	const categoryId =
 		data?.categoryId instanceof ObjectId ? data.categoryId : new ObjectId(data.categoryId);
-	const subcategoryKey = (data?.subcategoryKey || '').toString().trim() || null;
-	if (subcategoryKey) {
-		const hit = getSubcategoryByKey(subcategoryKey);
-		if (!hit) throw new Error(`subcategoryKey inválida: ${subcategoryKey}`);
-	}
+	const rawSubcategoryKey = (data?.subcategoryKey || '').toString().trim() || null;
+	// El aprendizaje solo usa keys del catálogo fijo: las subcategorías
+	// personalizadas no forman parte del catálogo que conoce la IA.
+	const subcategoryKey =
+		rawSubcategoryKey && getSubcategoryByKey(rawSubcategoryKey) ? rawSubcategoryKey : null;
 	const categoryKey = subcategoryKey ? getCategoryKeyOfSubcategory(subcategoryKey) : null;
 	const now = new Date();
 

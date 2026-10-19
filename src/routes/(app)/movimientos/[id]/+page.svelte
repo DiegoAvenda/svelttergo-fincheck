@@ -17,14 +17,9 @@
 
 	const subcategories = $derived(data.subcategories ?? []);
 
-	function categoryKeyOf(catId) {
-		return data.categories.find((c) => c.id === catId)?.categoryKey ?? null;
-	}
-
 	function subcatsForCategory(catId) {
-		const key = categoryKeyOf(catId);
-		if (!key) return [];
-		return subcategories.filter((s) => s.categoryKey === key);
+		if (!catId) return [];
+		return subcategories.filter((s) => s.categoryId === catId);
 	}
 
 	function onCategoryChange() {
@@ -35,9 +30,8 @@
 
 	function onSubcategoryChange() {
 		const sub = subcategories.find((s) => s.key === subcategoryKey);
-		if (!sub) return;
-		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
-		if (cat) categoryId = cat.id;
+		if (!sub || !sub.categoryId) return;
+		categoryId = sub.categoryId;
 	}
 
 	function onItemCategoryChange(item) {
@@ -48,9 +42,8 @@
 
 	function onItemSubcategoryChange(item) {
 		const sub = subcategories.find((s) => s.key === item.subcategoryKey);
-		if (!sub) return;
-		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
-		if (cat) item.categoryId = cat.id;
+		if (!sub || !sub.categoryId) return;
+		item.categoryId = sub.categoryId;
 	}
 </script>
 

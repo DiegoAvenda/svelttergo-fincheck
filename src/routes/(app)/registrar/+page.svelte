@@ -23,14 +23,9 @@
 	const displayCategories = $derived(data.categories.filter((c) => !c.isSystem));
 	const subcategories = $derived(data.subcategories ?? []);
 
-	function categoryKeyOf(id) {
-		return data.categories.find((c) => c.id === id)?.categoryKey ?? null;
-	}
-
 	function subcatsForCategory(id) {
-		const key = categoryKeyOf(id);
-		if (!key) return [];
-		return subcategories.filter((s) => s.categoryKey === key);
+		if (!id) return [];
+		return subcategories.filter((s) => s.categoryId === id);
 	}
 
 	function selectCategory(id) {
@@ -44,8 +39,7 @@
 	function onSubcategoryChange() {
 		const sub = subcategories.find((s) => s.key === subcategoryKey);
 		if (!sub) return;
-		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
-		if (cat) categoryId = cat.id;
+		if (sub.categoryId) categoryId = sub.categoryId;
 	}
 </script>
 

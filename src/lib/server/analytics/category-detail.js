@@ -9,9 +9,10 @@ import { subcategoryLabel } from '$lib/server/defaults/subcategories.js';
  * @param {string} categoryId
  * @param {Date} startDate
  * @param {Date} endDate
+ * @param {Map<string, string>} [customLabelByKey] etiquetas de subcategorías personalizadas
  * @returns {Promise<{ totalCents: number, count: number, avgCents: number, topMerchants: Array<{name: string, totalCents: number}>, topItems: Array<{description: string, totalCents: number, count: number}> }>}
  */
-export async function getCategoryDetail(userId, categoryId, startDate, endDate) {
+export async function getCategoryDetail(userId, categoryId, startDate, endDate, customLabelByKey) {
 	const db = await getDb();
 	const catOid = new ObjectId(categoryId);
 
@@ -172,7 +173,10 @@ export async function getCategoryDetail(userId, categoryId, startDate, endDate) 
 	const subcategories = Array.from(subcatMap.entries())
 		.map(([key, cents]) => ({
 			subcategoryKey: key === 'pendiente' ? null : key,
-			subcategoryName: key === 'pendiente' ? 'Pendiente de revisión' : subcategoryLabel(key),
+			subcategoryName:
+				key === 'pendiente'
+					? 'Pendiente de revisión'
+					: (customLabelByKey?.get(key) ?? subcategoryLabel(key)),
 			totalCents: cents,
 			pctOfCategory: pctOf(cents, totalCents)
 		}))

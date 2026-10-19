@@ -1,6 +1,7 @@
 import { error } from '@sveltejs/kit';
 import { getCategoryDetail } from '$lib/server/analytics/category-detail.js';
 import { getCategoryById } from '$lib/server/repos/categories.js';
+import { getCustomSubcategories } from '$lib/server/repos/custom-catalog.js';
 import { getSettings } from '$lib/server/repos/settings.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { SYSTEM_CATEGORY_UNCLASSIFIED } from '$lib/server/defaults/categories.js';
@@ -13,9 +14,13 @@ export const load = async (event) => {
 	const settings = await getSettings(userId);
 	const monthStartDay = settings?.monthStartDay || 1;
 
-	const { start, end, label: periodLabel } = getPeriodRange(/** @type {any} */ (period), monthStartDay);
+	const {
+		start,
+		end,
+		label: periodLabel
+	} = getPeriodRange(/** @type {any} */ (period), monthStartDay);
 
-	let categoryName = '';
+	let categoryName;
 	if (categoryId === 'sin-clasificar') {
 		categoryName = SYSTEM_CATEGORY_UNCLASSIFIED;
 	} else {
@@ -31,7 +36,17 @@ export const load = async (event) => {
 		}
 	}
 
-	const detail = await getCategoryDetail(userId, categoryId === 'sin-clasificar' ? null : categoryId, start, end);
+	// Etiquetas de subcategorías personalizadas para el desglose.
+	const customSubs = await getCustomSubcategories(userId);
+	const customLabelByKey = new Map(customSubs.map((s) => [s.key, s.name]));
+
+	const detail = await getCategoryDetail(
+		userId,
+		categoryId === 'sin-clasificar' ? null : categoryId,
+		start,
+		end,
+		customLabelByKey
+	);
 
 	return {
 		categoryId,

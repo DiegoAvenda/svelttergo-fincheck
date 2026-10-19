@@ -1,7 +1,13 @@
 import { getDb } from '$lib/server/db.js';
 
 /**
- * @typedef {{ categoryId: import('mongodb').ObjectId, plannedCents: number }} BudgetLine
+ * @typedef {{
+ *   categoryId: import('mongodb').ObjectId|null,
+ *   subcategoryKey: string|null,
+ *   plannedCents: number,
+ *   customKey?: string|null,
+ *   customName?: string|null
+ * }} BudgetLine
  * @typedef {{ _id: import('mongodb').ObjectId, userId: string, lines: BudgetLine[], createdAt: Date, updatedAt: Date }} Budget
  */
 

@@ -8,28 +8,26 @@ import { shouldPersistCorrection } from '$lib/server/tickets/correction-decision
 import { parseAmountToCents } from '$lib/utils/money.js';
 import { todayInMX } from '$lib/utils/periods.js';
 import { ObjectId } from 'mongodb';
-import {
-	buildCategoryIdByKeyMap,
-	buildCategoryKeyByIdMap,
-	categoryKeyOfDoc
-} from '$lib/server/defaults/categories.js';
-import {
-	SUBCATEGORIES,
-	getCategoryKeyOfSubcategory,
-	sanitizeSubcategoryKey
-} from '$lib/server/defaults/subcategories.js';
+import { buildCategoryKeyByIdMap, categoryKeyOfDoc } from '$lib/server/defaults/categories.js';
+import { buildCatalogForUser } from '$lib/server/repos/custom-catalog.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const categories = await getVisibleCategories(userId);
 
-	// Blindaje UI: el dropdown solo muestra el catálogo fijo (17 + sistema),
-	// aunque la BD aún tenga legacy. La auto-migración del layout las limpia.
+	// Blindaje UI: el dropdown muestra el catálogo fijo (17 + sistema) más las
+	// categorías personalizadas del usuario. La auto-migración del layout limpia
+	// las legacy.
 	const { normalizeCategoryName, fixedCatalogNames } =
 		await import('$lib/server/defaults/categories.js');
 	const allowed = new Set(fixedCatalogNames().map((n) => normalizeCategoryName(n)));
-	const fixedOnly = categories.filter((c) => allowed.has(normalizeCategoryName(c.name)));
-	const visible = fixedOnly.length > 0 ? fixedOnly : categories;
+	const fixedOrCustom = categories.filter(
+		(c) => !!c.isCustom || allowed.has(normalizeCategoryName(c.name))
+	);
+	const visible = fixedOrCustom.length > 0 ? fixedOrCustom : categories;
+
+	// Subcategorías: catálogo fijo + personalizadas del usuario.
+	const catalog = await buildCatalogForUser(userId, categories);
 
 	return {
 		categories: visible.map((c) => ({
@@ -37,28 +35,35 @@ export const load = async (event) => {
 			name: c.name,
 			categoryKey: categoryKeyOfDoc(c),
 			parentId: c.parentId ? c.parentId.toString() : null,
-			isSystem: !!c.isSystem
+			isSystem: !!c.isSystem,
+			isCustom: !!c.isCustom
 		})),
-		// Catálogo fijo de subcategorías para los selectores de revisión.
-		subcategories: SUBCATEGORIES.map((s) => ({
+		subcategories: catalog.subs.map((s) => ({
 			key: s.key,
 			name: s.name,
-			categoryKey: s.categoryKey
+			categoryId: s.categoryId,
+			isCustom: !!s.isCustom
 		}))
 	};
 };
 
 /**
  * Resuelve la categoría principal a partir de una subcategoría (fuente de verdad).
+ * Acepta subcategorías del catálogo fijo y personalizadas del usuario.
  * @param {string|null|undefined} subcategoryKey
- * @param {Map<string, any>} categoryIdByKey
+ * @param {{ labelByKey: Map<string,string>, categoryIdBySubKey: Map<string,string> }} catalog
+ * @param {Map<string, any>} categoryKeyById
  * @returns {{ subcategoryKey: string|null, categoryKey: string|null, categoryId: any|null }}
  */
-function resolveFromSubcategory(subcategoryKey, categoryIdByKey) {
-	const cleanSub = sanitizeSubcategoryKey(subcategoryKey);
-	const categoryKey = cleanSub ? getCategoryKeyOfSubcategory(cleanSub) : null;
-	const categoryId = categoryKey ? (categoryIdByKey.get(categoryKey) ?? null) : null;
-	return { subcategoryKey: cleanSub, categoryKey, categoryId };
+function resolveFromSubcategory(subcategoryKey, catalog, categoryKeyById) {
+	const raw = (subcategoryKey || '').trim();
+	if (!raw || !catalog.labelByKey.has(raw)) {
+		return { subcategoryKey: null, categoryKey: null, categoryId: null };
+	}
+	const categoryIdStr = catalog.categoryIdBySubKey.get(raw) ?? null;
+	const categoryKey = categoryIdStr ? (categoryKeyById.get(categoryIdStr) ?? null) : null;
+	const categoryId = categoryIdStr ? new ObjectId(categoryIdStr) : null;
+	return { subcategoryKey: raw, categoryKey, categoryId };
 }
 
 export const actions = {
@@ -166,12 +171,12 @@ export const actions = {
 
 		// Categorías del usuario para derivar la principal desde la subcategoría.
 		const categories = await getVisibleCategories(userId);
-		const categoryIdByKey = buildCategoryIdByKeyMap(categories);
 		const categoryKeyById = buildCategoryKeyByIdMap(categories);
+		const catalog = await buildCatalogForUser(userId, categories);
 
 		if (onlyTotal) {
 			// Modo "Solo guardar el total"
-			const fromSub = resolveFromSubcategory(singleSubcategoryStr, categoryIdByKey);
+			const fromSub = resolveFromSubcategory(singleSubcategoryStr, catalog, categoryKeyById);
 
 			let categoryId = fromSub.categoryId;
 			let categoryKey = fromSub.categoryKey;
@@ -223,7 +228,7 @@ export const actions = {
 			const amtCents = parseAmountToCents(amtStr) || 0;
 
 			// La subcategoría manda: si es válida, se deriva la categoría principal.
-			const fromSub = resolveFromSubcategory(subStr, categoryIdByKey);
+			const fromSub = resolveFromSubcategory(subStr, catalog, categoryKeyById);
 			let catId = fromSub.categoryId;
 			let subcategoryKey = fromSub.subcategoryKey;
 

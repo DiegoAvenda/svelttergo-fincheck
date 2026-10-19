@@ -27,18 +27,13 @@
 	);
 	let singleSubcategoryKey = $state('');
 
-	// Catálogo fijo de subcategorías y utilidades para mantener la coherencia
-	// categoría <-> subcategoría en la interfaz.
+	// Catálogo de subcategorías (fijas + personalizadas) y utilidades para
+	// mantener la coherencia categoría <-> subcategoría en la interfaz.
 	const subcategories = $derived(data.subcategories ?? []);
 
-	function categoryKeyOf(catId) {
-		return data.categories.find((c) => c.id === catId)?.categoryKey ?? null;
-	}
-
 	function subcatsForCategory(catId) {
-		const key = categoryKeyOf(catId);
-		if (!key) return [];
-		return subcategories.filter((s) => s.categoryKey === key);
+		if (!catId) return [];
+		return subcategories.filter((s) => s.categoryId === catId);
 	}
 
 	// Al cambiar la categoría, si la subcategoría ya no aplica se reinicia.
@@ -52,9 +47,8 @@
 	// Al cambiar la subcategoría, se actualiza la categoría principal coherente.
 	function onItemSubcategoryChange(item) {
 		const sub = subcategories.find((s) => s.key === item.subcategoryKey);
-		if (!sub) return;
-		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
-		if (cat) item.categoryId = cat.id;
+		if (!sub || !sub.categoryId) return;
+		item.categoryId = sub.categoryId;
 	}
 
 	function onSingleCategoryChange() {
@@ -65,9 +59,8 @@
 
 	function onSingleSubcategoryChange() {
 		const sub = subcategories.find((s) => s.key === singleSubcategoryKey);
-		if (!sub) return;
-		const cat = data.categories.find((c) => c.categoryKey === sub.categoryKey);
-		if (cat) singleCategoryId = cat.id;
+		if (!sub || !sub.categoryId) return;
+		singleCategoryId = sub.categoryId;
 	}
 
 	// Actualizar estado si llega un draft del form

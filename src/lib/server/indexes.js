@@ -14,6 +14,11 @@ export async function ensureIndexes() {
 
 		// Categories
 		db.collection('categories').createIndex({ userId: 1 }),
+		db.collection('categories').createIndex({ userId: 1, isCustom: 1 }),
+
+		// Custom subcategories (creadas por el usuario)
+		db.collection('user_subcategories').createIndex({ userId: 1, categoryId: 1 }),
+		db.collection('user_subcategories').createIndex({ userId: 1, key: 1 }, { unique: true }),
 
 		// Settings
 		db.collection('settings').createIndex({ userId: 1 }, { unique: true }),

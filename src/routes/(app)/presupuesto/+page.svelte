@@ -8,15 +8,20 @@
 	let income = $state(data.incomePesos);
 	let lines = $state(
 		data.lines.map((l) => ({
+			key: l.key,
 			categoryId: l.categoryId,
 			name: l.name,
+			isCustom: !!l.isCustom,
 			general: l.plannedPesos,
 			spentCents: l.spentCents,
 			generalSpentCents: l.generalSpentCents,
 			expanded: false,
-			subcategories: l.subcategories.map((s) => ({
+			newSubName: '',
+			subcategories: (l.subcategories ?? []).map((s) => ({
+				id: s.id ?? null,
 				key: s.key,
 				name: s.name,
+				isCustom: !!s.isCustom,
 				amount: s.plannedPesos,
 				spentCents: s.spentCents
 			}))
@@ -24,6 +29,7 @@
 	);
 
 	let pickerOpen = $state(false);
+	let newName = $state('');
 	let saving = $state(false);
 
 	let available = $derived(
@@ -51,29 +57,96 @@
 		line.expanded = !line.expanded;
 	}
 
-	function removeCategory(id) {
-		lines = lines.filter((l) => l.categoryId !== id);
+	function removeCategory(key) {
+		lines = lines.filter((l) => l.key !== key);
 	}
 
 	function addCategory(cat) {
+		if (lines.some((l) => l.categoryId === cat.id)) return;
 		lines = [
 			...lines,
 			{
+				key: cat.id,
 				categoryId: cat.id,
 				name: cat.name,
+				isCustom: !!cat.isCustom,
 				general: '',
 				spentCents: 0,
 				generalSpentCents: 0,
 				expanded: true,
-				subcategories: cat.subcategories.map((s) => ({
+				newSubName: '',
+				subcategories: (cat.subcategories ?? []).map((s) => ({
+					id: s.id ?? null,
 					key: s.key,
 					name: s.name,
+					isCustom: !!s.isCustom,
 					amount: '',
 					spentCents: 0
 				}))
 			}
 		];
 		pickerOpen = false;
+	}
+
+	// Al crear una categoría real en el servidor, la agregamos al presupuesto.
+	async function createCategoryEnhance({ result, update }) {
+		await update();
+		if (result.type === 'success') {
+			const newId = result.data?.createdCategoryId;
+			const cat = newId ? data.categories.find((c) => c.id === newId) : null;
+			if (cat) addCategory(cat);
+			newName = '';
+		}
+	}
+
+	// Categorías personalizadas del usuario (para poder borrarlas).
+	let customCategories = $derived(data.categories.filter((c) => c.isCustom));
+
+	// Al borrar una categoría/subcategoría personalizada, limpiamos el estado
+	// local para no dejar líneas huérfanas.
+	async function deleteCustomEnhance({ result, update }) {
+		await update();
+		if (result.type === 'success') {
+			const id = result.data?.deletedId;
+			if (id) {
+				lines = lines
+					.filter((l) => l.categoryId !== id)
+					.map((l) => ({ ...l, subcategories: l.subcategories.filter((s) => s.id !== id) }));
+			}
+		}
+	}
+
+	function confirmDelete(name) {
+		return window.confirm(
+			`¿Eliminar "${name}"? Los movimientos que la usaban pasarán a "Sin clasificar".`
+		);
+	}
+
+	// Al crear una subcategoría personalizada, la agregamos a su categoría.
+	async function createSubEnhance({ result, update }) {
+		await update();
+		if (result.type === 'success') {
+			const sub = result.data?.createdSubcategory;
+			if (sub) {
+				const line = lines.find((l) => l.categoryId === sub.categoryId);
+				if (line) {
+					if (!line.subcategories.some((s) => s.key === sub.key)) {
+						line.subcategories = [
+							...line.subcategories,
+							{
+								id: sub.id,
+								key: sub.key,
+								name: sub.name,
+								isCustom: true,
+								amount: '',
+								spentCents: 0
+							}
+						];
+					}
+					line.newSubName = '';
+				}
+			}
+		}
 	}
 </script>
 
@@ -96,7 +169,7 @@
 		</div>
 	{/if}
 
-	{#if form?.success}
+	{#if form?.savedBudget}
 		<div class="success-banner card">Presupuesto guardado correctamente</div>
 	{/if}
 
@@ -181,30 +254,50 @@
 				</div>
 				<h3 class="empty-heading">No tienes categorías en el presupuesto</h3>
 				<p class="empty-desc">
-					Usa “Añadir categoría” para volver a incluir las que quieras presupuestar este mes.
+					Usa “Añadir categoría” para crear una nueva o volver a incluir las que quieras
+					presupuestar este mes.
 				</p>
 			</div>
 		{:else}
 			<div class="cat-list">
-				{#each lines as line (line.categoryId)}
+				{#each lines as line (line.key)}
 					<div class="cat-block card">
 						<div class="cat-head">
-							<button
-								type="button"
-								class="cat-toggle"
-								onclick={() => toggle(line)}
-								aria-expanded={line.expanded}
-							>
-								<span class="chevron" class:open={line.expanded}>›</span>
-								<span class="cat-name">{line.name}</span>
-							</button>
+							{#if line.subcategories.length > 0}
+								<button
+									type="button"
+									class="cat-toggle"
+									onclick={() => toggle(line)}
+									aria-expanded={line.expanded}
+								>
+									<span class="chevron" class:open={line.expanded}>›</span>
+									<span class="cat-name">{line.name}</span>
+								</button>
+							{:else}
+								<span class="cat-name" class:custom={line.isCustom}>{line.name}</span>
+							{/if}
 
 							<div class="cat-head-right">
-								<span class="cat-total">{formatMoney(catPlanned(line))}</span>
+								{#if line.subcategories.length > 0}
+									<span class="cat-total">{formatMoney(catPlanned(line))}</span>
+								{:else}
+									<div class="line-inputs">
+										<span class="currency-prefix">$</span>
+										<input
+											type="text"
+											inputmode="decimal"
+											name="general|{line.categoryId}"
+											bind:value={line.general}
+											placeholder="0"
+											class="amount-input"
+											aria-label="Monto de {line.name}"
+										/>
+									</div>
+								{/if}
 								<button
 									type="button"
 									class="remove-btn"
-									onclick={() => removeCategory(line.categoryId)}
+									onclick={() => removeCategory(line.key)}
 									aria-label="Quitar {line.name} del presupuesto"
 								>
 									✕
@@ -214,6 +307,9 @@
 
 						<div class="cat-meta">
 							<span class="cat-real">Real este mes: {formatMoney(line.spentCents)}</span>
+							{#if line.isCustom}
+								<span class="custom-tag">Personalizada</span>
+							{/if}
 							{#if catPlanned(line) > 0 && line.spentCents > 0}
 								{#if catPlanned(line) - line.spentCents >= 0}
 									<span class="diff ok">
@@ -227,61 +323,102 @@
 							{/if}
 						</div>
 
-						{#if catPlanned(line) > 0}
-							<div class="cat-track">
-								<div
-									class="cat-bar"
-									class:over={lineProgressPct(line.spentCents, catPlanned(line)) > 100}
-									style="width: {Math.min(
-										lineProgressPct(line.spentCents, catPlanned(line)),
-										100
-									)}%;"
-								></div>
-							</div>
-						{/if}
-
-						<!-- Submenú de subcategorías (oculto pero presente para no perder los montos) -->
-						<div class="subs" class:collapsed={!line.expanded}>
-							<div class="sub-row general">
-								<div class="sub-label">
-									<span class="sub-name">General (sin subcategoría)</span>
-									<span class="sub-real">Real: {formatMoney(line.generalSpentCents)}</span>
+						{#if line.subcategories.length > 0}
+							{#if catPlanned(line) > 0}
+								<div class="cat-track">
+									<div
+										class="cat-bar"
+										class:over={lineProgressPct(line.spentCents, catPlanned(line)) > 100}
+										style="width: {Math.min(
+											lineProgressPct(line.spentCents, catPlanned(line)),
+											100
+										)}%;"
+									></div>
 								</div>
-								<div class="line-inputs">
-									<span class="currency-prefix">$</span>
-									<input
-										type="text"
-										inputmode="decimal"
-										name="general|{line.categoryId}"
-										bind:value={line.general}
-										placeholder="0"
-										class="amount-input"
-										aria-label="Monto general de {line.name}"
-									/>
-								</div>
-							</div>
+							{/if}
 
-							{#each line.subcategories as sub (sub.key)}
-								<div class="sub-row">
+							<div class="subs" class:collapsed={!line.expanded}>
+								<div class="sub-row general">
 									<div class="sub-label">
-										<span class="sub-name">{sub.name}</span>
-										<span class="sub-real">Real: {formatMoney(sub.spentCents)}</span>
+										<span class="sub-name">General (sin subcategoría)</span>
+										<span class="sub-real">Real: {formatMoney(line.generalSpentCents)}</span>
 									</div>
 									<div class="line-inputs">
 										<span class="currency-prefix">$</span>
 										<input
 											type="text"
 											inputmode="decimal"
-											name="sub|{line.categoryId}|{sub.key}"
-											bind:value={sub.amount}
+											name="general|{line.categoryId}"
+											bind:value={line.general}
 											placeholder="0"
 											class="amount-input"
-											aria-label="Monto de {sub.name}"
+											aria-label="Monto general de {line.name}"
 										/>
 									</div>
 								</div>
-							{/each}
-						</div>
+
+								{#each line.subcategories as sub (sub.key)}
+									<div class="sub-row">
+										<div class="sub-label">
+											<span class="sub-name">
+												{sub.name}
+												{#if sub.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+											</span>
+											<span class="sub-real">Real: {formatMoney(sub.spentCents)}</span>
+										</div>
+										<div class="line-inputs">
+											<span class="currency-prefix">$</span>
+											<input
+												type="text"
+												inputmode="decimal"
+												name="sub|{line.categoryId}|{sub.key}"
+												bind:value={sub.amount}
+												placeholder="0"
+												class="amount-input"
+												aria-label="Monto de {sub.name}"
+											/>
+											{#if sub.isCustom}
+												<button
+													type="submit"
+													form="deleteCustomForm"
+													name="id"
+													value={sub.id}
+													class="icon-delete"
+													title="Eliminar subcategoría"
+													aria-label="Eliminar subcategoría {sub.name}"
+													onclick={(e) => {
+														if (!confirmDelete(sub.name)) e.preventDefault();
+													}}
+												>
+													✕
+												</button>
+											{/if}
+										</div>
+									</div>
+								{/each}
+
+								<div class="sub-row add-sub-row">
+									<input
+										type="text"
+										name="name"
+										form="createSubForm-{line.categoryId}"
+										bind:value={line.newSubName}
+										placeholder="Nueva subcategoría…"
+										class="sub-new-input input-field"
+										maxlength="60"
+										aria-label="Nueva subcategoría para {line.name}"
+									/>
+									<button
+										type="submit"
+										form="createSubForm-{line.categoryId}"
+										class="add-sub-btn"
+										disabled={line.newSubName.trim() === ''}
+									>
+										Agregar
+									</button>
+								</div>
+							</div>
+						{/if}
 					</div>
 				{/each}
 			</div>
@@ -293,23 +430,71 @@
 				type="button"
 				class="btn-secondary w-full"
 				onclick={() => (pickerOpen = !pickerOpen)}
-				disabled={available.length === 0}
+				aria-expanded={pickerOpen}
 			>
 				+ Añadir categoría
 			</button>
 
-			{#if pickerOpen && available.length > 0}
-				<div class="picker card">
-					{#each available as cat (cat.id)}
-						<button type="button" class="picker-item" onclick={() => addCategory(cat)}>
-							{cat.name}
+			{#if pickerOpen}
+				<div class="add-panel card">
+					<p class="panel-label">Crear una categoría nueva</p>
+					<div class="new-cat-row">
+						<input
+							type="text"
+							name="name"
+							form="createCategoryForm"
+							bind:value={newName}
+							placeholder="Ej. Renta, Colegiatura…"
+							class="input-field"
+							maxlength="60"
+							aria-label="Nombre de la categoría nueva"
+						/>
+						<button
+							type="submit"
+							form="createCategoryForm"
+							class="create-btn btn-primary"
+							disabled={newName.trim() === ''}
+						>
+							Crear
 						</button>
-					{/each}
-				</div>
-			{/if}
+					</div>
 
-			{#if available.length === 0}
-				<p class="all-used">Todas las categorías de gasto ya están en la lista.</p>
+					{#if available.length > 0}
+						<p class="panel-label picker-heading">O vuelve a agregar del catálogo</p>
+						<div class="picker">
+							{#each available as cat (cat.id)}
+								<button type="button" class="picker-item" onclick={() => addCategory(cat)}>
+									{cat.name}
+								</button>
+							{/each}
+						</div>
+					{/if}
+
+					{#if customCategories.length > 0}
+						<p class="panel-label picker-heading">Tus categorías personalizadas</p>
+						<div class="picker">
+							{#each customCategories as cat (cat.id)}
+								<div class="custom-manage">
+									<span class="custom-manage-name">{cat.name}</span>
+									<button
+										type="submit"
+										form="deleteCustomForm"
+										name="id"
+										value={cat.id}
+										class="icon-delete"
+										title="Eliminar categoría"
+										aria-label="Eliminar categoría {cat.name}"
+										onclick={(e) => {
+											if (!confirmDelete(cat.name)) e.preventDefault();
+										}}
+									>
+										✕
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
 			{/if}
 		</div>
 
@@ -317,6 +502,34 @@
 			{saving ? 'Guardando...' : 'Guardar presupuesto'}
 		</button>
 	</form>
+
+	<!-- Formulario aparte para crear categorías (asociado por el atributo `form`) -->
+	<form
+		id="createCategoryForm"
+		method="post"
+		action="?/createCategory"
+		use:enhance={() => createCategoryEnhance}
+	></form>
+
+	<!-- Formulario aparte para borrar categorías/subcategorías personalizadas -->
+	<form
+		id="deleteCustomForm"
+		method="post"
+		action="?/deleteCustom"
+		use:enhance={() => deleteCustomEnhance}
+	></form>
+
+	<!-- Un formulario por categoría para crear subcategorías personalizadas -->
+	{#each lines as line (line.key)}
+		<form
+			id="createSubForm-{line.categoryId}"
+			method="post"
+			action="?/createSubcategory"
+			use:enhance={() => createSubEnhance}
+		>
+			<input type="hidden" name="categoryId" value={line.categoryId} />
+		</form>
+	{/each}
 </div>
 
 <style>
@@ -500,8 +713,25 @@
 	.cat-name {
 		font-size: 0.9375rem;
 		font-weight: 600;
+		min-width: 0;
 		overflow: hidden;
 		text-overflow: ellipsis;
+		white-space: nowrap;
+
+		&.custom {
+			color: var(--color-primary-600);
+		}
+	}
+
+	.custom-tag {
+		font-size: 0.625rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.03em;
+		color: var(--color-primary-600);
+		background: color-mix(in srgb, var(--color-primary-500) 12%, transparent);
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
 		white-space: nowrap;
 	}
 
@@ -629,6 +859,41 @@
 		color: var(--app-text-secondary);
 	}
 
+	.add-sub-row {
+		padding-top: 0.625rem;
+		padding-bottom: 0.625rem;
+	}
+
+	.sub-new-input {
+		flex: 1;
+		min-width: 0;
+		font-size: 0.8125rem;
+		padding: 0.4375rem 0.625rem;
+	}
+
+	.add-sub-btn {
+		flex-shrink: 0;
+		padding: 0.4375rem 0.75rem;
+		background: var(--input-bg);
+		border: 1px solid var(--app-border);
+		border-radius: var(--radius-md);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		color: var(--color-primary-700);
+		cursor: pointer;
+		transition: all 150ms ease;
+
+		&:hover:not(:disabled) {
+			background: var(--color-primary-50);
+			border-color: var(--color-primary-300);
+		}
+
+		&:disabled {
+			opacity: 0.5;
+			cursor: not-allowed;
+		}
+	}
+
 	.line-inputs {
 		display: flex;
 		align-items: center;
@@ -665,12 +930,44 @@
 		margin-bottom: 1.25rem;
 	}
 
+	.add-panel {
+		padding: 0.875rem;
+		margin-top: 0.75rem;
+	}
+
+	.panel-label {
+		font-size: 0.6875rem;
+		font-weight: 600;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--app-text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.picker-heading {
+		margin-top: 0.875rem;
+	}
+
+	.new-cat-row {
+		display: flex;
+		align-items: stretch;
+		gap: 0.5rem;
+	}
+
+	.new-cat-row .input-field {
+		flex: 1;
+		min-width: 0;
+	}
+
+	.create-btn {
+		flex-shrink: 0;
+	}
+
 	.picker {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 0.5rem;
-		padding: 0.875rem;
-		margin-top: 0.75rem;
+		margin-bottom: 0.25rem;
 	}
 
 	.picker-item {
@@ -694,11 +991,43 @@
 		}
 	}
 
-	.all-used {
-		font-size: 0.75rem;
+	.custom-manage {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.375rem;
+		padding: 0.25rem 0.375rem 0.25rem 0.875rem;
+		background: var(--input-bg);
+		border: 1px solid var(--app-border);
+		border-radius: var(--radius-full);
+		min-height: 2.25rem;
+	}
+
+	.custom-manage-name {
+		font-size: 0.8125rem;
+		font-weight: 500;
+		color: var(--app-text);
+	}
+
+	.icon-delete {
+		width: 1.625rem;
+		height: 1.625rem;
+		min-width: 1.625rem;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		background: none;
+		border: none;
+		border-radius: 999px;
 		color: var(--app-text-secondary);
-		text-align: center;
-		margin-top: 0.5rem;
+		font-size: 0.75rem;
+		cursor: pointer;
+		transition: all 150ms ease;
+
+		&:hover {
+			background: var(--color-danger-50);
+			color: var(--color-danger-500);
+		}
 	}
 
 	.save-btn {

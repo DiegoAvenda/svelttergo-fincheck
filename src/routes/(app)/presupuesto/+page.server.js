@@ -8,8 +8,19 @@ import { getSpendingByCategorySubcategory } from '$lib/server/analytics/spending
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { parseAmountToCents, centsToPesos } from '$lib/utils/money.js';
 import { buildBudgetLinesFromForm } from '$lib/utils/budget-math.js';
-import { FIXED_CATEGORIES, categoryKeyOfDoc } from '$lib/server/defaults/categories.js';
-import { SUBCATEGORIES } from '$lib/server/defaults/subcategories.js';
+import {
+	FIXED_CATEGORIES,
+	categoryKeyOfDoc,
+	normalizeCategoryName
+} from '$lib/server/defaults/categories.js';
+import {
+	buildCatalogForUser,
+	createCustomCategory,
+	createCustomSubcategory,
+	deleteCustomCategory,
+	deleteCustomSubcategory,
+	migrateLegacyBudgetLines
+} from '$lib/server/repos/custom-catalog.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -40,39 +51,55 @@ export const load = async (event) => {
 		spentBySub.set(`${cid}|${s.subcategoryKey ?? ''}`, s.totalCents);
 	}
 
-	// Categorías fijas de gasto (sin sistema ni subcategorías), en orden del catálogo.
+	// Categorías de gasto: las 17 fijas (en orden del catálogo) + las
+	// personalizadas del usuario (al final, por nombre).
 	const orderIndex = new Map(FIXED_CATEGORIES.map((c, i) => [c.key, i]));
 	const fixedCategories = categories
-		.filter((c) => !c.isSystem && !c.parentId)
-		.map((c) => ({ id: c._id.toString(), name: c.name, categoryKey: categoryKeyOfDoc(c) }))
+		.filter((c) => !c.isSystem && !c.parentId && !c.isCustom)
+		.map((c) => ({
+			id: c._id.toString(),
+			name: c.name,
+			categoryKey: categoryKeyOfDoc(c),
+			isCustom: false
+		}))
 		.filter((c) => orderIndex.has(c.categoryKey))
 		.sort((a, b) => orderIndex.get(a.categoryKey) - orderIndex.get(b.categoryKey));
 
-	const fixedById = new Map(fixedCategories.map((c) => [c.id, c]));
+	const customCategories = categories
+		.filter((c) => !c.isSystem && !c.parentId && c.isCustom)
+		.map((c) => ({
+			id: c._id.toString(),
+			name: c.name,
+			categoryKey: c.categoryKey || null,
+			isCustom: true
+		}))
+		.sort((a, b) => a.name.localeCompare(b.name, 'es'));
 
-	// Subcategorías del catálogo agrupadas por categoría principal.
-	const subsByCategoryKey = new Map();
-	for (const s of SUBCATEGORIES) {
-		if (!subsByCategoryKey.has(s.categoryKey)) subsByCategoryKey.set(s.categoryKey, []);
-		subsByCategoryKey.get(s.categoryKey).push({ key: s.key, name: s.name });
-	}
+	const expenseCategories = [...fixedCategories, ...customCategories];
+	const expenseById = new Map(expenseCategories.map((c) => [c.id, c]));
+
+	// Subcategorías: fijas del catálogo + personalizadas del usuario, por categoría.
+	const catalog = await buildCatalogForUser(userId, categories);
+	const subsByCategoryId = catalog.byCategoryId;
 
 	/**
-	 * @param {{ id: string, name: string, categoryKey: string }} cat
+	 * @param {{ id: string, name: string, categoryKey: string|null, isCustom: boolean }} cat
 	 * @param {number} generalCents
 	 * @param {Map<string, number>|null} storedSubs
 	 */
 	const buildEntry = (cat, generalCents, storedSubs) => {
-		const catalogSubs = subsByCategoryKey.get(cat.categoryKey) || [];
+		const subDefs = subsByCategoryId.get(cat.id) || [];
 		let subSpentSum = 0;
 
-		const subcategories = catalogSubs.map((s) => {
+		const subcategories = subDefs.map((s) => {
 			const planned = storedSubs?.get(s.key) ?? 0;
 			const spent = spentBySub.get(`${cat.id}|${s.key}`) || 0;
 			subSpentSum += spent;
 			return {
 				key: s.key,
+				id: s.id ?? null,
 				name: s.name,
+				isCustom: !!s.isCustom,
 				plannedCents: planned,
 				plannedPesos: planned ? centsToPesos(planned) : '',
 				spentCents: spent
@@ -83,9 +110,11 @@ export const load = async (event) => {
 		const totalPlannedCents = generalCents + subcategories.reduce((t, s) => t + s.plannedCents, 0);
 
 		return {
+			key: cat.id,
 			categoryId: cat.id,
 			name: cat.name,
 			categoryKey: cat.categoryKey,
+			isCustom: !!cat.isCustom,
 			plannedCents: generalCents,
 			plannedPesos: generalCents ? centsToPesos(generalCents) : '',
 			totalPlannedCents,
@@ -96,19 +125,34 @@ export const load = async (event) => {
 		};
 	};
 
+	// Migración: las categorías personalizadas creadas con el modelo anterior
+	// (solo presupuesto, `customKey`) pasan a ser categorías reales.
+	let budgetLines = budget?.lines;
+	const migrated = await migrateLegacyBudgetLines(userId, budgetLines);
+	if (migrated) {
+		await setBudgetLines(userId, migrated);
+		budgetLines = migrated;
+	}
+
+	const compareEntries = (a, b) => {
+		if (a.isCustom !== b.isCustom) return a.isCustom ? 1 : -1;
+		if (a.isCustom) return a.name.localeCompare(b.name, 'es');
+		return orderIndex.get(a.categoryKey) - orderIndex.get(b.categoryKey);
+	};
+
 	// Si el usuario nunca ha guardado un presupuesto, se listan TODAS las
 	// categorías listas para asignarles un monto. Si ya guardó, se respeta su
 	// lista (incluyendo lo que haya borrado).
-	const hasStoredBudget = Array.isArray(budget?.lines);
-	/** @type {ReturnType<typeof buildEntry>[]} */
+	const hasStoredBudget = Array.isArray(budgetLines);
+	/** @type {Array<ReturnType<typeof buildEntry>>} */
 	let lines;
 
 	if (hasStoredBudget) {
 		/** @type {Map<string, { generalCents: number, subs: Map<string, number> }>} */
 		const storedByCat = new Map();
-		for (const l of budget.lines) {
+		for (const l of budgetLines) {
 			const cid = l.categoryId?.toString?.();
-			if (!cid || !fixedById.has(cid)) continue;
+			if (!cid || !expenseById.has(cid)) continue;
 			let entry = storedByCat.get(cid);
 			if (!entry) {
 				entry = { generalCents: 0, subs: new Map() };
@@ -118,10 +162,10 @@ export const load = async (event) => {
 			else entry.generalCents = l.plannedCents || 0;
 		}
 		lines = [...storedByCat.entries()]
-			.map(([cid, entry]) => buildEntry(fixedById.get(cid), entry.generalCents, entry.subs))
-			.sort((a, b) => orderIndex.get(a.categoryKey) - orderIndex.get(b.categoryKey));
+			.map(([cid, entry]) => buildEntry(expenseById.get(cid), entry.generalCents, entry.subs))
+			.sort(compareEntries);
 	} else {
-		lines = fixedCategories.map((c) => buildEntry(c, 0, null));
+		lines = expenseCategories.map((c) => buildEntry(c, 0, null));
 	}
 
 	return {
@@ -130,12 +174,19 @@ export const load = async (event) => {
 		incomePesos: settings?.monthlyIncomeCents ? centsToPesos(settings.monthlyIncomeCents) : '',
 		currency: settings?.currency || 'MXN',
 		lines,
-		// Todas las categorías (con sus subcategorías), para re-agregar las borradas.
-		categories: fixedCategories.map((c) => ({
+		// Todas las categorías de gasto (con sus subcategorías), para re-agregar
+		// las borradas del presupuesto.
+		categories: expenseCategories.map((c) => ({
 			id: c.id,
 			name: c.name,
 			categoryKey: c.categoryKey,
-			subcategories: subsByCategoryKey.get(c.categoryKey) || []
+			isCustom: !!c.isCustom,
+			subcategories: (subsByCategoryId.get(c.id) || []).map((s) => ({
+				key: s.key,
+				id: s.id ?? null,
+				name: s.name,
+				isCustom: !!s.isCustom
+			}))
 		}))
 	};
 };
@@ -146,20 +197,18 @@ export const actions = {
 		const formData = await event.request.formData();
 
 		const categories = await getCategoriesByUser(userId);
-		const fixed = categories.filter((c) => !c.isSystem && !c.parentId);
-		const keyById = new Map(fixed.map((c) => [c._id.toString(), categoryKeyOfDoc(c)]));
+		const expenseCats = categories.filter((c) => !c.isSystem && !c.parentId);
+		const validCategoryIds = new Set(expenseCats.map((c) => c._id.toString()));
 
-		// Subcategorías válidas por categoría (para no aceptar combinaciones incoherentes).
+		const catalog = await buildCatalogForUser(userId, categories);
 		const validSubByCat = new Map();
-		for (const [id, catKey] of keyById) {
-			validSubByCat.set(
-				id,
-				new Set(SUBCATEGORIES.filter((s) => s.categoryKey === catKey).map((s) => s.key))
-			);
+		for (const id of validCategoryIds) {
+			const list = catalog.byCategoryId.get(id) || [];
+			validSubByCat.set(id, new Set(list.map((s) => s.key)));
 		}
 
 		const { lines: parsedLines, hasErrors } = buildBudgetLinesFromForm(formData.entries(), {
-			isValidCategory: (id) => keyById.has(id),
+			isValidCategory: (id) => validCategoryIds.has(id),
 			isValidSubcategory: (id, subKey) => validSubByCat.get(id)?.has(subKey) ?? false
 		});
 
@@ -170,8 +219,8 @@ export const actions = {
 		}
 
 		const lines = parsedLines.map((l) => ({
-			categoryId: new ObjectId(l.categoryId),
-			subcategoryKey: l.subcategoryKey,
+			categoryId: l.categoryId ? new ObjectId(l.categoryId) : null,
+			subcategoryKey: l.subcategoryKey ?? null,
 			plannedCents: l.plannedCents
 		}));
 
@@ -190,6 +239,85 @@ export const actions = {
 			updateSettings(userId, { monthlyIncomeCents })
 		]);
 
-		return { success: true };
+		return { success: true, savedBudget: true };
+	},
+
+	// Crea una categoría personalizada real y la agrega al presupuesto.
+	createCategory: async (event) => {
+		const userId = event.locals.user.id;
+		const formData = await event.request.formData();
+		const name = formData.get('name')?.toString().trim() ?? '';
+
+		if (!name) {
+			return fail(400, { error: 'Escribe un nombre para la categoría.' });
+		}
+
+		const categories = await getCategoriesByUser(userId);
+		const normalized = normalizeCategoryName(name);
+		const duplicate = categories.some(
+			(c) => !c.parentId && normalizeCategoryName(c.name) === normalized
+		);
+		if (duplicate) {
+			return fail(400, { error: 'Ya existe una categoría con ese nombre.' });
+		}
+
+		const created = await createCustomCategory(userId, name);
+
+		const budget = await getBudget(userId);
+		let lines;
+		if (Array.isArray(budget?.lines)) {
+			lines = [
+				...budget.lines,
+				{ categoryId: new ObjectId(created.id), subcategoryKey: null, plannedCents: 0 }
+			];
+		} else {
+			// Sin presupuesto guardado: se parte de todas las categorías (en 0).
+			lines = categories
+				.filter((c) => !c.isSystem && !c.parentId)
+				.map((c) => ({ categoryId: c._id, subcategoryKey: null, plannedCents: 0 }));
+			lines.push({ categoryId: new ObjectId(created.id), subcategoryKey: null, plannedCents: 0 });
+		}
+
+		await setBudgetLines(userId, lines);
+		return { success: true, createdCategoryId: created.id };
+	},
+
+	// Crea una subcategoría personalizada dentro de una categoría (fija o custom).
+	createSubcategory: async (event) => {
+		const userId = event.locals.user.id;
+		const formData = await event.request.formData();
+		const categoryId = formData.get('categoryId')?.toString().trim() ?? '';
+		const name = formData.get('name')?.toString().trim() ?? '';
+
+		if (!categoryId || !name) {
+			return fail(400, { error: 'Escribe un nombre para la subcategoría.' });
+		}
+
+		try {
+			const created = await createCustomSubcategory(userId, { categoryId, name });
+			return { success: true, createdSubcategory: created };
+		} catch (err) {
+			return fail(400, { error: (err && err.message) || 'No se pudo crear la subcategoría.' });
+		}
+	},
+
+	// Borra una categoría o subcategoría personalizada (no del catálogo fijo).
+	// Los movimientos que la usaban se reasignan a "Sin clasificar" desde el repo.
+	deleteCustom: async (event) => {
+		const userId = event.locals.user.id;
+		const formData = await event.request.formData();
+		const id = formData.get('id')?.toString().trim() ?? '';
+
+		if (!id) {
+			return fail(400, { error: 'ID faltante.' });
+		}
+
+		const cat = await deleteCustomCategory(userId, id);
+		if (cat.removed) return { success: true, deletedId: id };
+
+		const sub = await deleteCustomSubcategory(userId, id);
+		if (sub.removed) return { success: true, deletedId: id };
+
+		return fail(403, { error: 'El catálogo original no se puede eliminar.' });
 	}
 };

@@ -1,18 +1,9 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { getMovementById, updateMovement, deleteMovement } from '$lib/server/repos/movements.js';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
+import { buildCatalogForUser } from '$lib/server/repos/custom-catalog.js';
 import { ObjectId } from 'mongodb';
-import {
-	buildCategoryIdByKeyMap,
-	buildCategoryKeyByIdMap,
-	categoryKeyOfDoc
-} from '$lib/server/defaults/categories.js';
-import {
-	SUBCATEGORIES,
-	getCategoryKeyOfSubcategory,
-	sanitizeSubcategoryKey,
-	subcategoryLabel
-} from '$lib/server/defaults/subcategories.js';
+import { buildCategoryKeyByIdMap, categoryKeyOfDoc } from '$lib/server/defaults/categories.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
@@ -32,6 +23,10 @@ export const load = async (event) => {
 		categoryMap.set(c._id.toString(), c.name);
 	}
 
+	// Subcategorías fijas + personalizadas: también resuelve sus etiquetas.
+	const catalog = await buildCatalogForUser(userId, categories);
+	const labelFor = (key) => (key ? (catalog.labelByKey.get(key) ?? 'Pendiente de revisión') : '');
+
 	const serializedItems = (movement.items || []).map((item, index) => {
 		const catIdStr = item.categoryId ? item.categoryId.toString() : '';
 		return {
@@ -41,7 +36,7 @@ export const load = async (event) => {
 			categoryId: catIdStr,
 			categoryName: catIdStr ? categoryMap.get(catIdStr) || 'Sin categoría' : 'Sin clasificar',
 			subcategoryKey: item.subcategoryKey || '',
-			subcategoryName: item.subcategoryKey ? subcategoryLabel(item.subcategoryKey) : ''
+			subcategoryName: labelFor(item.subcategoryKey)
 		};
 	});
 
@@ -57,7 +52,7 @@ export const load = async (event) => {
 			categoryId: catIdStr,
 			categoryName: catIdStr ? categoryMap.get(catIdStr) || 'Sin categoría' : 'Sin categoría',
 			subcategoryKey: movement.subcategoryKey || '',
-			subcategoryName: movement.subcategoryKey ? subcategoryLabel(movement.subcategoryKey) : '',
+			subcategoryName: labelFor(movement.subcategoryKey),
 			note: movement.note || '',
 			source: movement.source,
 			items: serializedItems
@@ -66,12 +61,14 @@ export const load = async (event) => {
 			id: c._id.toString(),
 			name: c.name,
 			categoryKey: categoryKeyOfDoc(c),
-			parentId: c.parentId ? c.parentId.toString() : null
+			parentId: c.parentId ? c.parentId.toString() : null,
+			isCustom: !!c.isCustom
 		})),
-		subcategories: SUBCATEGORIES.map((s) => ({
+		subcategories: catalog.subs.map((s) => ({
 			key: s.key,
 			name: s.name,
-			categoryKey: s.categoryKey
+			categoryId: s.categoryId,
+			isCustom: !!s.isCustom
 		}))
 	};
 };
@@ -95,8 +92,25 @@ export const actions = {
 
 		// Categorías del usuario para derivar la principal desde la subcategoría.
 		const categories = await getVisibleCategories(userId);
-		const categoryIdByKey = buildCategoryIdByKeyMap(categories);
 		const categoryKeyById = buildCategoryKeyByIdMap(categories);
+		const catalog = await buildCatalogForUser(userId, categories);
+
+		/**
+		 * Resuelve categoría/subcategoría a partir de una key (fija o personalizada).
+		 * @param {string|null|undefined} subKey
+		 */
+		const resolve = (subKey) => {
+			const raw = (subKey || '').trim();
+			if (!raw || !catalog.labelByKey.has(raw)) {
+				return { subcategoryKey: null, categoryId: null, categoryKey: null };
+			}
+			const cid = catalog.categoryIdBySubKey.get(raw) ?? null;
+			return {
+				subcategoryKey: raw,
+				categoryId: cid ? new ObjectId(cid) : null,
+				categoryKey: cid ? (categoryKeyById.get(cid) ?? null) : null
+			};
+		};
 
 		/** @type {any} */
 		const updates = {
@@ -109,15 +123,11 @@ export const actions = {
 		}
 
 		// Derivar categoría/subcategoría a nivel de movimiento (gastos simples).
-		const movementSub = sanitizeSubcategoryKey(subcategoryKeyStr);
-		const movementCatKey = movementSub ? getCategoryKeyOfSubcategory(movementSub) : null;
-		if (movementCatKey) {
-			const derivedId = categoryIdByKey.get(movementCatKey);
-			if (derivedId) {
-				updates.categoryId = derivedId;
-				updates.categoryKey = movementCatKey;
-				updates.subcategoryKey = movementSub;
-			}
+		const movementSub = resolve(subcategoryKeyStr);
+		if (movementSub.subcategoryKey && movementSub.categoryId) {
+			updates.categoryId = movementSub.categoryId;
+			updates.categoryKey = movementSub.categoryKey;
+			updates.subcategoryKey = movementSub.subcategoryKey;
 		} else if (categoryIdStr) {
 			updates.categoryId = new ObjectId(categoryIdStr);
 			updates.categoryKey = categoryKeyById.get(categoryIdStr) ?? null;
@@ -129,15 +139,12 @@ export const actions = {
 			const updatedItems = [...movement.items];
 			for (let i = 0; i < updatedItems.length; i++) {
 				const itemCat = formData.get(`item_cat_${i}`)?.toString()?.trim();
-				const itemSub = formData.get(`item_subcat_${i}`)?.toString()?.trim();
+				const itemSubStr = formData.get(`item_subcat_${i}`)?.toString()?.trim();
 
-				const cleanSub = sanitizeSubcategoryKey(itemSub);
-				const itemCatKey = cleanSub ? getCategoryKeyOfSubcategory(cleanSub) : null;
-				const derivedId = itemCatKey ? categoryIdByKey.get(itemCatKey) : null;
-
-				if (derivedId) {
-					updatedItems[i].categoryId = derivedId;
-					updatedItems[i].subcategoryKey = cleanSub;
+				const itemSub = resolve(itemSubStr);
+				if (itemSub.subcategoryKey && itemSub.categoryId) {
+					updatedItems[i].categoryId = itemSub.categoryId;
+					updatedItems[i].subcategoryKey = itemSub.subcategoryKey;
 				} else if (itemCat) {
 					updatedItems[i].categoryId = new ObjectId(itemCat);
 					updatedItems[i].subcategoryKey = null;
