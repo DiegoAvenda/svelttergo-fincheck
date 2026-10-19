@@ -70,6 +70,63 @@
 		</div>
 	</div>
 
+	<!-- Presupuesto del mes (gastos planeados, distintos de los reales) -->
+	<section class="section">
+		<div class="section-header">
+			<h2 class="section-title">Presupuesto del mes</h2>
+			<a href="/presupuesto" class="section-link"
+				>{data.budgetSummary.hasBudget ? 'Editar' : 'Crear'}</a
+			>
+		</div>
+
+		{#if !data.budgetSummary.hasBudget}
+			<a href="/presupuesto" class="budget-empty card">
+				<div class="budget-empty-text">
+					<span class="budget-empty-title">Planea tus gastos del mes</span>
+					<span class="budget-empty-sub">
+						Asigna cuánto piensas gastar por categoría y mira cuánto de tu ingreso te quedaría.
+					</span>
+				</div>
+				<span class="chevron">›</span>
+			</a>
+		{:else}
+			<a href="/presupuesto" class="budget-card card">
+				<div class="budget-row">
+					<span class="budget-label">Planeado</span>
+					<span class="budget-value">{formatMoney(data.budgetSummary.plannedCents)}</span>
+				</div>
+				<div class="budget-row">
+					<span class="budget-label">Te quedaría</span>
+					{#if data.budgetSummary.remainingCents === null}
+						<span class="budget-value muted">—</span>
+					{:else}
+						<span
+							class="budget-value"
+							class:positive={data.budgetSummary.remainingCents >= 0}
+							class:negative={data.budgetSummary.remainingCents < 0}
+						>
+							{formatMoney(data.budgetSummary.remainingCents)}
+						</span>
+					{/if}
+				</div>
+
+				{#if data.budgetSummary.usedPct !== null}
+					<div class="progress-track">
+						<div
+							class="progress-bar"
+							class:over={data.budgetSummary.usedPct > 100}
+							style="width: {Math.min(data.budgetSummary.usedPct, 100)}%;"
+						></div>
+					</div>
+				{/if}
+
+				<span class="budget-foot">
+					{data.budgetSummary.linesCount} categorías planeadas · toca para editar
+				</span>
+			</a>
+		{/if}
+	</section>
+
 	<!-- Top categorías de gasto -->
 	<section class="section">
 		<div class="section-header">
@@ -438,6 +495,90 @@
 		background: var(--color-primary-500);
 		border-radius: var(--radius-full);
 		transition: width 300ms ease;
+
+		&.over {
+			background: var(--color-danger-500);
+		}
+	}
+
+	.budget-card {
+		display: flex;
+		flex-direction: column;
+		gap: 0.625rem;
+		padding: 1rem 1.25rem;
+		text-decoration: none;
+		color: var(--app-text);
+	}
+
+	.budget-row {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+	}
+
+	.budget-label {
+		font-size: 0.875rem;
+		font-weight: 600;
+		color: var(--app-text-secondary);
+	}
+
+	.budget-value {
+		font-size: 1rem;
+		font-weight: 800;
+		font-variant-numeric: tabular-nums;
+
+		&.positive {
+			color: var(--color-primary-600);
+		}
+
+		&.negative {
+			color: var(--color-danger-500);
+		}
+
+		&.muted {
+			color: var(--app-text-secondary);
+		}
+	}
+
+	.budget-foot {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+	}
+
+	.budget-empty {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 1rem 1.25rem;
+		text-decoration: none;
+		color: var(--app-text);
+		border: 1px dashed var(--color-primary-300);
+		background: var(--color-primary-50);
+	}
+
+	.budget-empty-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.125rem;
+		min-width: 0;
+	}
+
+	.budget-empty-title {
+		font-size: 0.9375rem;
+		font-weight: 700;
+	}
+
+	.budget-empty-sub {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		line-height: 1.4;
+	}
+
+	.chevron {
+		font-size: 1.25rem;
+		color: var(--app-text-secondary);
+		flex-shrink: 0;
 	}
 
 	.recent-card {

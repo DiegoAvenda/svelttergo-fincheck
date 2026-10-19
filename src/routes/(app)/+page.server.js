@@ -6,15 +6,24 @@ import {
 } from '$lib/server/repos/movements.js';
 import { getSpendingByCategory } from '$lib/server/analytics/spending-by-category.js';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
+import { getBudget } from '$lib/server/repos/budgets.js';
+import { getSettings } from '$lib/server/repos/settings.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
+import {
+	sumPlannedCents,
+	remainingFromIncome,
+	budgetUsedPct,
+	plannedCategoryCount
+} from '$lib/utils/budget-math.js';
 import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 import { fail } from '@sveltejs/kit';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
-	const settings = event.locals.settings || { monthStartDay: 1, currency: 'MXN' };
-	const monthStartDay = settings.monthStartDay || 1;
+
+	const [settings, budget] = await Promise.all([getSettings(userId), getBudget(userId)]);
+	const monthStartDay = settings?.monthStartDay || 1;
 
 	const { start, end, label: monthLabel } = getPeriodRange('this-month', monthStartDay);
 
@@ -25,6 +34,22 @@ export const load = async (event) => {
 		getRecentMovements(userId, 7),
 		getVisibleCategories(userId)
 	]);
+
+	// Resumen del presupuesto (gastos planeados, distintos de los reales).
+	const plannedLines = budget?.lines || [];
+	const plannedCents = sumPlannedCents(plannedLines);
+	const budgetIncomeCents = settings?.monthlyIncomeCents ?? null;
+	// Cuenta categorías (con algo planeado), no líneas: una categoría puede
+	// tener varias subcategorías.
+	const plannedCount = plannedCategoryCount(plannedLines);
+	const budgetSummary = {
+		hasBudget: plannedCount > 0,
+		linesCount: plannedCount,
+		plannedCents,
+		incomeCents: budgetIncomeCents,
+		remainingCents: remainingFromIncome(budgetIncomeCents, plannedCents),
+		usedPct: budgetUsedPct(plannedCents, budgetIncomeCents)
+	};
 
 	const balanceCents = incomeCents - expensesCents;
 
@@ -73,6 +98,7 @@ export const load = async (event) => {
 		expensesCents,
 		balanceCents,
 		topCategories,
+		budgetSummary,
 		recentMovements: serializedRecent,
 		createdNotice: createdId ? { id: createdId, type: createdType } : null
 	};

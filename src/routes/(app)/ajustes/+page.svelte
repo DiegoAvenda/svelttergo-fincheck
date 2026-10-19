@@ -41,10 +41,42 @@
 
 	<!-- Menú de navegación de ajustes -->
 	<div class="nav-card card">
+		<a href="/presupuesto" class="nav-item">
+			<div class="nav-left">
+				<div class="nav-icon">
+					<svg
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
+						<path d="M3 3v18h18" />
+						<path d="M7 14l4-4 3 3 5-6" />
+					</svg>
+				</div>
+				<div>
+					<span class="nav-title">Presupuesto mensual</span>
+					<span class="nav-sub">Planea cuánto gastar por categoría</span>
+				</div>
+			</div>
+			<span class="chevron">›</span>
+		</a>
+
+		<div class="divider"></div>
+
 		<a href="/ajustes/categorias" class="nav-item">
 			<div class="nav-left">
 				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<rect x="3" y="3" width="7" height="7" />
 						<rect x="14" y="3" width="7" height="7" />
 						<rect x="14" y="14" width="7" height="7" />
@@ -64,7 +96,14 @@
 		<a href="/ajustes/exportar" class="nav-item">
 			<div class="nav-left">
 				<div class="nav-icon">
-					<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<svg
+						width="20"
+						height="20"
+						viewBox="0 0 24 24"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2"
+					>
 						<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 						<polyline points="7 10 12 15 17 10" />
 						<line x1="12" y1="15" x2="12" y2="3" />
@@ -106,7 +145,9 @@
 					placeholder="Ej. 18000"
 					class="input-field"
 				/>
-				<span class="field-hint">Sirve de referencia para calcular el % de ingresos que representa cada hábito.</span>
+				<span class="field-hint"
+					>Sirve de referencia para calcular el % de ingresos que representa cada hábito.</span
+				>
 			</div>
 
 			<div class="field">
@@ -132,11 +173,11 @@
 					name="currency"
 					value={currency}
 					readonly
-					class="input-field readonly"
+					class="readonly input-field"
 				/>
 			</div>
 
-			<button type="submit" class="btn-primary w-full mt-2" disabled={saving}>
+			<button type="submit" class="mt-2 btn-primary w-full" disabled={saving}>
 				{saving ? 'Guardando...' : 'Guardar preferencias'}
 			</button>
 		</div>
@@ -152,7 +193,14 @@
 			}}
 		>
 			<button type="submit" class="logout-btn" disabled={loggingOut}>
-				<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<svg
+					width="18"
+					height="18"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2"
+				>
 					<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
 					<polyline points="16 17 21 12 16 7" />
 					<line x1="21" y1="12" x2="9" y2="12" />
