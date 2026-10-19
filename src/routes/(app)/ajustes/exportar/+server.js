@@ -1,6 +1,7 @@
 import { listMovements } from '$lib/server/repos/movements.js';
 import { getCategoriesByUser } from '$lib/server/repos/categories.js';
 import { centsToPesos } from '$lib/utils/money.js';
+import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 
 function escapeCsvField(val) {
 	if (val === null || val === undefined) return '';
@@ -28,14 +29,26 @@ export const GET = async ({ locals }) => {
 		categoryMap.set(c._id.toString(), c.name);
 	}
 
-	const headers = ['ID', 'Fecha', 'Tipo', 'Importe_MXN', 'Comercio', 'Categoria', 'Nota', 'Origen', 'Articulos'];
+	const headers = [
+		'ID',
+		'Fecha',
+		'Tipo',
+		'Importe_MXN',
+		'Comercio',
+		'Categoria',
+		'Nota',
+		'Origen',
+		'Articulos'
+	];
 	const rows = [headers.join(',')];
 
 	for (const m of movements) {
-		const catName = m.categoryId ? categoryMap.get(m.categoryId.toString()) || '' : '';
+		const catName = movementCategoryLabel(m, categoryMap);
 		const dateStr = m.date.toISOString().slice(0, 10);
 		const pesos = centsToPesos(m.amountCents).toFixed(2);
-		const itemsSummary = (m.items || []).map((it) => `${it.originalDescription} ($${centsToPesos(it.amountCents).toFixed(2)})`).join('; ');
+		const itemsSummary = (m.items || [])
+			.map((it) => `${it.originalDescription} ($${centsToPesos(it.amountCents).toFixed(2)})`)
+			.join('; ');
 
 		const row = [
 			escapeCsvField(m._id.toString()),

@@ -1,6 +1,7 @@
 import { listMovements, deleteMovement } from '$lib/server/repos/movements.js';
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
+import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 import { fail } from '@sveltejs/kit';
 
 export const load = async (event) => {
@@ -40,14 +41,13 @@ export const load = async (event) => {
 
 	// Serializar movimientos
 	const serializedMovements = movements.map((m) => {
-		const catName = m.categoryId ? categoryMap.get(m.categoryId.toString()) || 'Sin categoría' : 'Sin categoría';
 		return {
 			id: m._id.toString(),
 			type: m.type,
 			amountCents: m.amountCents,
 			date: m.date.toISOString(),
 			merchant: m.merchant,
-			categoryName: catName,
+			categoryName: movementCategoryLabel(m, categoryMap),
 			categoryId: m.categoryId ? m.categoryId.toString() : null,
 			note: m.note,
 			source: m.source,

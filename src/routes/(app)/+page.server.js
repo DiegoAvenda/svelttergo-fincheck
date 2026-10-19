@@ -8,6 +8,7 @@ import { getSpendingByCategory } from '$lib/server/analytics/spending-by-categor
 import { getVisibleCategories } from '$lib/server/repos/categories.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
+import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 import { fail } from '@sveltejs/kit';
 
 export const load = async (event) => {
@@ -50,16 +51,13 @@ export const load = async (event) => {
 
 	// Serializar últimos movimientos
 	const serializedRecent = recentMovements.map((m) => {
-		const catName = m.categoryId
-			? categoryMap.get(m.categoryId.toString()) || 'Sin categoría'
-			: 'Sin categoría';
 		return {
 			id: m._id.toString(),
 			type: m.type,
 			amountCents: m.amountCents,
 			date: m.date.toISOString(),
 			merchant: m.merchant,
-			categoryName: catName,
+			categoryName: movementCategoryLabel(m, categoryMap),
 			note: m.note,
 			source: m.source
 		};
