@@ -1,5 +1,6 @@
 import { listMovements, deleteMovement } from '$lib/server/repos/movements.js';
 import { getCategoriesByUser } from '$lib/server/repos/categories.js';
+import { getSettings } from '$lib/server/repos/settings.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 import { fail } from '@sveltejs/kit';
@@ -7,6 +8,8 @@ import { fail } from '@sveltejs/kit';
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const url = event.url;
+	const settings = await getSettings(userId);
+	const monthStartDay = settings?.monthStartDay || 1;
 
 	const search = url.searchParams.get('q')?.trim() || '';
 	const period = url.searchParams.get('period') || 'this-month';
@@ -17,7 +20,7 @@ export const load = async (event) => {
 	let endDate = undefined;
 
 	if (period !== 'all') {
-		const range = getPeriodRange(/** @type {any} */ (period), 1);
+		const range = getPeriodRange(/** @type {any} */ (period), monthStartDay);
 		startDate = range.start;
 		endDate = range.end;
 	}

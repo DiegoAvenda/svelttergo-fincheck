@@ -25,11 +25,21 @@ export const settingsSchema = z.object({
 			])
 		),
 	currency: z.string().default('MXN'),
-	monthStartDay: z.coerce.number().int().min(1).max(28).default(1)
+	monthStartDay: z.coerce.number().int().min(1).max(28).default(1),
+	incomeType: z
+		.union([
+			z.literal('').transform(() => null),
+			z.enum(['fixed', 'variable'], { message: 'Tipo de ingreso inválido' })
+		])
+		.nullable()
+		.optional()
 });
 
 export const categorySchema = z.object({
-	name: z.string({ message: 'El nombre es obligatorio' }).min(1, 'El nombre es obligatorio').max(50, 'Máximo 50 caracteres'),
+	name: z
+		.string({ message: 'El nombre es obligatorio' })
+		.min(1, 'El nombre es obligatorio')
+		.max(50, 'Máximo 50 caracteres'),
 	parentId: z.string().optional()
 });
 

@@ -74,8 +74,9 @@
 	<!-- Encabezado con periodo actual -->
 	<header class="home-header">
 		<div>
-			<span class="period-sub">Resumen del mes</span>
+			<span class="period-sub">Resumen del ciclo</span>
 			<h1 class="month-title">{data.monthLabel}</h1>
+			<span class="period-range">{data.periodRangeLabel}</span>
 		</div>
 	</header>
 
@@ -103,21 +104,36 @@
 		</div>
 	</div>
 
-	<!-- Presupuesto del mes (gastos planeados, distintos de los reales) -->
+	<!-- Presupuesto del ciclo (gastos planeados, distintos de los reales) -->
 	<section class="section">
 		<div class="section-header">
-			<h2 class="section-title">Presupuesto del mes</h2>
+			<h2 class="section-title">Presupuesto del ciclo</h2>
 			<a href="/presupuesto" class="section-link"
-				>{data.budgetSummary.hasBudget ? 'Editar' : 'Crear'}</a
+				>{data.budgetSummary.hasDraft
+					? 'Revisar'
+					: data.budgetSummary.hasBudget
+						? 'Editar'
+						: 'Crear'}</a
 			>
 		</div>
 
-		{#if !data.budgetSummary.hasBudget}
+		{#if data.budgetSummary.hasDraft}
+			<div class="budget-draft card">
+				<div class="budget-empty-text">
+					<span class="budget-empty-title">Propuesta pendiente</span>
+					<span class="budget-empty-sub">
+						Revisa y confirma el presupuesto de este ciclo. Todavía no cuenta como confirmado.
+					</span>
+				</div>
+				<span class="chevron" aria-hidden="true">›</span>
+			</div>
+		{:else if !data.budgetSummary.hasBudget}
 			<a href="/presupuesto" class="budget-empty card">
 				<div class="budget-empty-text">
-					<span class="budget-empty-title">Planea tus gastos del mes</span>
+					<span class="budget-empty-title">Planea tus gastos del ciclo</span>
 					<span class="budget-empty-sub">
-						Asigna cuánto piensas gastar por categoría y mira cuánto de tu ingreso te quedaría.
+						Asigna cuánto piensas gastar por categoría y mira cuánto de tu ingreso esperado te
+						quedaría.
 					</span>
 				</div>
 				<span class="chevron">›</span>
@@ -125,11 +141,19 @@
 		{:else}
 			<a href="/presupuesto" class="budget-card card">
 				<div class="budget-row">
+					<span class="budget-label">Ingreso esperado</span>
+					<span class="budget-value" class:muted={data.budgetSummary.incomeCents === null}>
+						{data.budgetSummary.incomeCents !== null
+							? formatMoney(data.budgetSummary.incomeCents)
+							: 'Sin definir'}
+					</span>
+				</div>
+				<div class="budget-row">
 					<span class="budget-label">Planeado</span>
 					<span class="budget-value">{formatMoney(data.budgetSummary.plannedCents)}</span>
 				</div>
 				<div class="budget-row">
-					<span class="budget-label">Te quedaría</span>
+					<span class="budget-label">Te quedaría del esperado</span>
 					{#if data.budgetSummary.remainingCents === null}
 						<span class="budget-value muted">—</span>
 					{:else}
@@ -425,6 +449,14 @@
 		text-transform: capitalize;
 	}
 
+	.period-range {
+		display: block;
+		margin-top: 0.125rem;
+		font-size: 0.6875rem;
+		color: var(--app-text-secondary);
+		font-variant-numeric: tabular-nums;
+	}
+
 	.stats-grid {
 		display: grid;
 		grid-template-columns: 1fr 1fr;
@@ -614,7 +646,8 @@
 		color: var(--app-text-secondary);
 	}
 
-	.budget-empty {
+	.budget-empty,
+	.budget-draft {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
@@ -624,6 +657,11 @@
 		color: var(--app-text);
 		border: 1px dashed var(--color-primary-300);
 		background: var(--color-primary-50);
+	}
+
+	.budget-draft {
+		border-color: var(--app-text-secondary);
+		background: var(--input-bg);
 	}
 
 	.budget-empty-text {

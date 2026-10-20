@@ -7,13 +7,19 @@ import {
 } from '$lib/server/repos/movements.js';
 import { getSpendingByCategory } from '$lib/server/analytics/spending-by-category.js';
 import { getCategoriesByUser } from '$lib/server/repos/categories.js';
-import { getBudget, migrateLegacyBudgets } from '$lib/server/repos/budgets.js';
+import {
+	getBudget,
+	migrateBudgetPeriods,
+	migrateLegacyBudgets,
+	resolveCurrentPeriod
+} from '$lib/server/repos/budgets.js';
 import { getSettings } from '$lib/server/repos/settings.js';
 import {
 	currentMonthKey,
+	formatPeriodLabel,
 	getMonthRangeByKey,
-	getPeriodRange,
 	isValidMonthKey,
+	monthKeyLabel,
 	shiftMonthKey
 } from '$lib/utils/periods.js';
 import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
@@ -31,29 +37,46 @@ export const load = async (event) => {
 
 	const settings = await getSettings(userId);
 	const monthStartDay = settings?.monthStartDay || 1;
-	const realCurrentKey = currentMonthKey(monthStartDay);
 
 	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` hace que esta
 	// pantalla crea que ese es el mes actual. No cambia datos ni el reloj y en
 	// producción se ignora por completo.
 	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
 	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
-	const previewMode = !!previewKey && previewKey !== realCurrentKey;
-	const currentKey = previewKey || realCurrentKey;
+
+	let current = await resolveCurrentPeriod(userId, monthStartDay);
+	const previewMode = !!previewKey && previewKey !== current.monthKey;
 
 	if (!previewMode) {
-		// El presupuesto legacy (sin mes) pasa al mes contable actual.
-		await migrateLegacyBudgets(userId, currentKey);
+		// El presupuesto legacy (sin mes) pasa al ciclo actual y se completan
+		// los límites de los presupuestos anteriores al modelo de ciclos.
+		await migrateLegacyBudgets(userId, currentMonthKey(monthStartDay), monthStartDay);
+		await migrateBudgetPeriods(userId, monthStartDay);
+		current = await resolveCurrentPeriod(userId, monthStartDay);
 	}
+
+	const realCurrentKey = current.monthKey;
+	const currentKey = previewKey || realCurrentKey;
 	const budget = await getBudget(userId, currentKey);
 
-	const {
-		start,
-		end,
-		label: monthLabel
-	} = previewKey
-		? getMonthRangeByKey(previewKey, monthStartDay)
-		: getPeriodRange('this-month', monthStartDay);
+	// Límites reales del ciclo: los guardados mandan en el historial. Si el
+	// presupuesto no tiene fechas (legacy) se usa el ciclo resuelto o el
+	// cálculo estándar.
+	let start;
+	let end;
+	if (budget?.periodStart instanceof Date && budget?.periodEndExclusive instanceof Date) {
+		start = budget.periodStart;
+		end = budget.periodEndExclusive;
+	} else if (currentKey === realCurrentKey) {
+		start = current.start;
+		end = current.end;
+	} else {
+		const range = getMonthRangeByKey(currentKey, monthStartDay);
+		start = range.start;
+		end = range.end;
+	}
+	const monthLabel = monthKeyLabel(currentKey);
+	const periodRangeLabel = formatPeriodLabel(start, end);
 
 	const [incomeCents, expensesCents, rawSpending, recentMovements, categories] = await Promise.all([
 		sumIncomeInRange(userId, start, end),
@@ -68,12 +91,29 @@ export const load = async (event) => {
 	// Resumen del presupuesto (gastos planeados, distintos de los reales).
 	const plannedLines = budget?.lines || [];
 	const plannedCents = sumPlannedCents(plannedLines);
-	const budgetIncomeCents = settings?.monthlyIncomeCents ?? null;
+	const budgetStatus = budget?.status || (budget ? 'confirmed' : null);
+	const hasDraft = budgetStatus === 'draft';
+	// El ingreso esperado es del ciclo, no global. Solo para el ciclo actual se
+	// permite mostrar el ingreso mensual heredado como referencia si el
+	// presupuesto todavía no tiene uno guardado. El historial nunca lo usa.
+	let budgetIncomeCents = budget?.plannedIncomeCents ?? null;
+	if (
+		!previewMode &&
+		currentKey === realCurrentKey &&
+		budgetStatus !== 'draft' &&
+		settings?.incomeType !== 'variable' &&
+		budgetIncomeCents === null
+	) {
+		budgetIncomeCents = settings?.monthlyIncomeCents ?? null;
+	}
 	// Cuenta categorías (con algo planeado), no líneas: una categoría puede
-	// tener varias subcategorías.
+	// tener varias subcategorías. Una propuesta pendiente no cuenta como
+	// presupuesto confirmado.
 	const plannedCount = plannedCategoryCount(plannedLines);
 	const budgetSummary = {
-		hasBudget: plannedCount > 0,
+		hasBudget: budgetStatus === 'confirmed' && plannedCount > 0,
+		hasDraft,
+		status: budgetStatus,
 		linesCount: plannedCount,
 		plannedCents,
 		incomeCents: budgetIncomeCents,
@@ -124,6 +164,7 @@ export const load = async (event) => {
 
 	return {
 		monthLabel,
+		periodRangeLabel,
 		incomeCents,
 		expensesCents,
 		balanceCents,

@@ -3,18 +3,24 @@ import { fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { getCategoriesByUser } from '$lib/server/repos/categories.js';
 import {
+	deleteBudgetById,
 	getBudget,
-	setBudgetLines,
+	getEarliestBudgetMonth,
+	getPreviousConfirmedBudget,
+	migrateBudgetPeriods,
 	migrateLegacyBudgets,
-	getEarliestBudgetMonth
+	resolveCurrentPeriod,
+	setBudget
 } from '$lib/server/repos/budgets.js';
-import { getSettings, updateSettings } from '$lib/server/repos/settings.js';
+import { getSettings } from '$lib/server/repos/settings.js';
 import { getSpendingByCategory } from '$lib/server/analytics/spending-by-category.js';
 import { getSpendingByCategorySubcategory } from '$lib/server/analytics/spending-by-subcategory.js';
-import { getEarliestMovementDate } from '$lib/server/repos/movements.js';
+import { getEarliestMovementDate, sumIncomeInRange } from '$lib/server/repos/movements.js';
 import {
 	currentMonthKey,
+	formatPeriodLabel,
 	getMonthRangeByKey,
+	isStandardPeriod,
 	isValidMonthKey,
 	monthKeyFromDate,
 	monthKeyLabel,
@@ -26,6 +32,7 @@ import {
 	buildBudgetLinesFromForm,
 	budgetHasPlanned,
 	cloneBudgetLines,
+	filterVisibleBudgetLines,
 	sumPlannedCents
 } from '$lib/utils/budget-math.js';
 import {
@@ -51,50 +58,63 @@ function capitalize(value) {
 }
 
 /**
- * Valida que la acción solo se aplique al mes actual (los anteriores son
- * de solo lectura).
+ * Valida que la acción solo se aplique al ciclo actual (los anteriores son
+ * de solo lectura). El ciclo actual se resuelve con los presupuestos guardados
+ * para respetar periodos de transición por cambio de `monthStartDay`.
  * @param {{ locals: { user: { id: string } } }} event
  * @param {FormData} formData
  * @returns {Promise<
  *   | { error: import('@sveltejs/kit').ActionFailure<any> }
- *   | { userId: string, monthKey: string, currentKey: string }
+ *   | {
+ *       userId: string,
+ *       monthKey: string,
+ *       current: Awaited<ReturnType<typeof resolveCurrentPeriod>>,
+ *       settings: Awaited<ReturnType<typeof getSettings>>,
+ *       monthStartDay: number
+ *     }
  * >}
  */
 async function requireCurrentMonth(event, formData) {
 	const userId = event.locals.user.id;
 	const settings = await getSettings(userId);
-	const currentKey = currentMonthKey(settings?.monthStartDay || 1);
-	const rawMonth = formData.get('month')?.toString().trim() || currentKey;
+	const monthStartDay = settings?.monthStartDay || 1;
+	const current = await resolveCurrentPeriod(userId, monthStartDay);
+	const rawMonth = formData.get('month')?.toString().trim() || current.monthKey;
 
 	if (!isValidMonthKey(rawMonth)) {
 		return { error: fail(400, { error: 'El mes no es válido.' }) };
 	}
-	if (rawMonth !== currentKey) {
-		return { error: fail(403, { error: 'Solo puedes editar el presupuesto del mes actual.' }) };
+	if (rawMonth !== current.monthKey) {
+		return { error: fail(403, { error: 'Solo puedes editar el presupuesto del ciclo actual.' }) };
 	}
 
-	return { userId, monthKey: currentKey, currentKey };
+	return { userId, monthKey: current.monthKey, current, settings, monthStartDay };
 }
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const settings = await getSettings(userId);
 	const monthStartDay = settings?.monthStartDay || 1;
-	const realCurrentKey = currentMonthKey(monthStartDay);
 
 	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` muestra ese mes
 	// como si fuera el actual, en solo lectura. No escribe datos; en producción
 	// se ignora por completo.
 	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
 	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
-	const previewMode = !!previewKey && previewKey !== realCurrentKey;
-	const currentKey = previewKey || realCurrentKey;
+
+	let current = await resolveCurrentPeriod(userId, monthStartDay);
+	const previewMode = !!previewKey && previewKey !== current.monthKey;
 
 	if (!previewMode) {
-		// El único presupuesto del modelo anterior era el vigente: se migra al
-		// mes actual sin pisar un presupuesto mensual ya existente.
-		await migrateLegacyBudgets(userId, currentKey);
+		// El presupuesto legacy (sin mes) pasa al ciclo actual; luego se
+		// completan los límites explícitos de los presupuestos existentes.
+		await migrateLegacyBudgets(userId, currentMonthKey(monthStartDay), monthStartDay);
+		await migrateBudgetPeriods(userId, monthStartDay);
+		current = await resolveCurrentPeriod(userId, monthStartDay);
 	}
+
+	const realCurrentKey = current.monthKey;
+	const currentKey = previewKey || realCurrentKey;
 
 	const [categories, usage, earliestBudgetMonth, earliestMovementDate] = await Promise.all([
 		getCategoriesByUser(userId),
@@ -119,27 +139,60 @@ export const load = async (event) => {
 	if (monthKey < minMonthKey) monthKey = minMonthKey;
 
 	// En modo prueba el mes simulado es siempre de solo lectura.
-	const isCurrentMonth = !previewMode && monthKey === currentKey;
-	const range = getMonthRangeByKey(monthKey, monthStartDay);
-	const monthLabel = capitalize(range.label);
+	const isCurrentMonth = !previewMode && monthKey === realCurrentKey;
 
-	const [budgetDoc, spending, subSpending, prevBudget] = await Promise.all([
-		getBudget(userId, monthKey),
+	let budgetDoc = await getBudget(userId, monthKey);
+
+	// Límites reales del periodo: si el presupuesto guardado tiene fechas, se
+	// usan esas (historial inmutable). Si no, el ciclo actual resuelto o el
+	// cálculo estándar con la configuración vigente.
+	const storedStart = budgetDoc?.periodStart instanceof Date ? budgetDoc.periodStart : null;
+	const storedEnd =
+		budgetDoc?.periodEndExclusive instanceof Date ? budgetDoc.periodEndExclusive : null;
+	let range;
+	if (storedStart && storedEnd) {
+		range = { start: storedStart, end: storedEnd };
+	} else if (!previewMode && monthKey === realCurrentKey) {
+		range = { start: current.start, end: current.end };
+	} else {
+		range = getMonthRangeByKey(monthKey, monthStartDay);
+	}
+
+	// El presupuesto guardado conserva el día de inicio con el que se creó. No
+	// se reinterpreta con la configuración actual: eso cambiaría su historia.
+	const rangeStartDay =
+		budgetDoc?.periodStartDay || (monthKey === realCurrentKey ? current.startDay : monthStartDay);
+	const standardPeriod = isStandardPeriod(range.start, range.end, rangeStartDay);
+	const monthLabel = capitalize(monthKeyLabel(monthKey));
+	const periodRangeLabel = formatPeriodLabel(range.start, range.end);
+
+	const [spending, subSpending, prevBudget, realIncomeCents] = await Promise.all([
 		getSpendingByCategory(userId, range.start, range.end),
 		getSpendingByCategorySubcategory(userId, range.start, range.end),
-		isCurrentMonth ? getBudget(userId, previousMonthKey(monthKey)) : Promise.resolve(null)
+		getPreviousConfirmedBudget(userId, range.start),
+		sumIncomeInRange(userId, range.start, range.end)
 	]);
 
-	// Migración de líneas legacy (`customKey`) del mes consultado. Conserva los
-	// importes y no cambia la clasificación de meses anteriores.
+	// Migración de líneas legacy (`customKey`) del ciclo consultado. Conserva los
+	// importes y no cambia la clasificación de periodos anteriores.
 	let budget = budgetDoc;
 	let budgetLines = budget?.lines;
 	// En modo prueba no se migran ni escriben líneas: la vista es solo lectura.
-	const migratedLines = previewMode ? null : await migrateLegacyBudgetLines(userId, budgetLines);
-	if (migratedLines) {
-		await setBudgetLines(userId, monthKey, migratedLines);
-		budget = { ...(budget || {}), lines: migratedLines, monthKey };
-		budgetLines = migratedLines;
+	if (!previewMode && budget) {
+		const migratedLines = await migrateLegacyBudgetLines(userId, budgetLines);
+		if (migratedLines) {
+			await setBudget(userId, monthKey, {
+				lines: migratedLines,
+				plannedIncomeCents: budget.plannedIncomeCents ?? null,
+				status: budget.status === 'draft' ? 'draft' : 'confirmed',
+				replacedConfirmed: !!budget.replacedConfirmed,
+				periodStart: range.start,
+				periodEndExclusive: range.end,
+				periodStartDay: budget.periodStartDay || monthStartDay
+			});
+			budget = { ...budget, lines: migratedLines, monthKey };
+			budgetLines = migratedLines;
+		}
 	}
 
 	// Gasto real del periodo, sin filtrar por visibilidad.
@@ -265,7 +318,7 @@ export const load = async (event) => {
 				const spent = spentBySub.get(`${cat.id}|${sub.key}`) || 0;
 				if (cat.isHidden) return storedSubs.has(sub.key) || spent > 0;
 				if (sub.isHidden) return storedSubs.has(sub.key) || spent > 0;
-				// En el mes activo se muestran todas las subcategorías visibles para
+				// En el ciclo activo se muestran todas las subcategorías visibles para
 				// planear; en histórico solo las que tienen línea o gasto real.
 				return isCurrentMonth || storedSubs.has(sub.key) || spent > 0;
 			})
@@ -343,7 +396,7 @@ export const load = async (event) => {
 		};
 	};
 
-	// Categorías que forman parte del presupuesto de este mes.
+	// Categorías que forman parte del presupuesto de este ciclo.
 	/** @type {Set<string>} */
 	const lineCategoryIds = new Set();
 	if (budget) {
@@ -351,7 +404,7 @@ export const load = async (event) => {
 			if (categoryById.has(cid)) lineCategoryIds.add(cid);
 		}
 	} else if (isCurrentMonth) {
-		// Borrador del mes activo: todas las visibles listas para asignar.
+		// Borrador del ciclo activo: todas las visibles listas para asignar.
 		for (const cat of visibleCategories) lineCategoryIds.add(cat.id);
 	}
 
@@ -407,7 +460,7 @@ export const load = async (event) => {
 	}
 
 	// Gasto real que no tiene una línea (ni general ni de subcategoría) en el
-	// presupuesto del mes. Se muestra aparte y nunca se le asigna un planeado
+	// presupuesto del ciclo. Se muestra aparte y nunca se le asigna un planeado
 	// ficticio.
 	const budgetedLineIds = new Set(
 		lines.filter((line) => !line.isMissing).map((line) => line.categoryId)
@@ -433,23 +486,65 @@ export const load = async (event) => {
 	const hasStoredBudget = !!budget;
 	const hasBudgetLines = Array.isArray(budget?.lines) && budget.lines.length > 0;
 	const hasBudgetData = budgetHasPlanned(budgetLines);
+	const status = budget?.status || (budget ? 'confirmed' : null);
+	const isDraft = status === 'draft';
+	const replacedConfirmed = !!budget?.replacedConfirmed;
 
-	// Opciones de navegación (mes actual primero).
+	// Ingreso esperado del ciclo. Para el ciclo activo se permite prellenar con
+	// el ingreso mensual aproximado heredado, pero nunca se usa para el historial.
+	let incomeCents = budget?.plannedIncomeCents ?? null;
+	let incomeIsFallback = false;
+	if (
+		isCurrentMonth &&
+		!isDraft &&
+		settings?.incomeType !== 'variable' &&
+		incomeCents === null &&
+		settings?.monthlyIncomeCents != null
+	) {
+		incomeCents = settings.monthlyIncomeCents;
+		incomeIsFallback = true;
+	}
+	const incomePesos = incomeCents != null ? centsToPesos(incomeCents) : '';
+
+	// Referencia del ciclo anterior para la propuesta y el ingreso variable.
+	const prevMonthKey = prevBudget?.monthKey || previousMonthKey(monthKey);
+	const prevRange =
+		prevBudget?.periodStart instanceof Date && prevBudget?.periodEndExclusive instanceof Date
+			? { start: prevBudget.periodStart, end: prevBudget.periodEndExclusive }
+			: getMonthRangeByKey(prevMonthKey, monthStartDay);
+	const previousRealIncomeCents = await sumIncomeInRange(userId, prevRange.start, prevRange.end);
+	const prevMonthLabel =
+		prevBudget?.periodStart instanceof Date && prevBudget?.periodEndExclusive instanceof Date
+			? formatPeriodLabel(prevBudget.periodStart, prevBudget.periodEndExclusive)
+			: capitalize(monthKeyLabel(prevMonthKey));
+
+	// Opciones de navegación (ciclo actual primero).
 	const monthOptions = [];
 	let cursor = currentKey;
 	let guard = 0;
 	while (cursor >= minMonthKey && guard < 240) {
-		monthOptions.push({ key: cursor, label: capitalize(monthKeyLabel(cursor)) });
+		monthOptions.push({
+			key: cursor,
+			label: cursor === monthKey ? monthLabel : capitalize(monthKeyLabel(cursor))
+		});
 		cursor = shiftMonthKey(cursor, -1);
 		guard++;
 	}
 
 	return {
 		monthKey,
-		currentMonthKey: currentKey,
+		currentMonthKey: realCurrentKey,
 		monthLabel,
+		periodRangeLabel,
+		periodStart: range.start.toISOString(),
+		periodEndExclusive: range.end.toISOString(),
+		periodStartDay: rangeStartDay,
+		isTransitionPeriod: !standardPeriod,
 		monthOptions,
 		isCurrentMonth,
+		status,
+		isDraft,
+		replacedConfirmed,
 		// Solo dev: datos para el banner de simulación de mes.
 		preview: dev
 			? {
@@ -458,22 +553,27 @@ export const load = async (event) => {
 					nextMonthKey: shiftMonthKey(previewMode ? previewKey : realCurrentKey, 1)
 				}
 			: null,
-		prevMonthKey: shiftMonthKey(monthKey, -1),
+		prevMonthKey,
 		nextMonthKey: shiftMonthKey(monthKey, 1),
 		canGoPrev: monthKey > minMonthKey,
 		canGoNext: monthKey < currentKey,
-		prevMonthLabel: capitalize(monthKeyLabel(previousMonthKey(monthKey))),
+		prevMonthLabel,
 		prevMonthHasBudget: Array.isArray(prevBudget?.lines) && prevBudget.lines.length > 0,
 		hasStoredBudget,
 		hasBudgetLines,
 		hasBudgetData,
 		plannedCents,
 		spentCents: totalSpentCents,
+		realIncomeCents,
 		differenceCents: plannedCents - totalSpentCents,
 		unbudgeted,
 		unbudgetedCents,
-		incomeCents: settings?.monthlyIncomeCents ?? null,
-		incomePesos: settings?.monthlyIncomeCents ? centsToPesos(settings.monthlyIncomeCents) : '',
+		incomeCents,
+		incomePesos,
+		incomeIsFallback,
+		incomeType: settings?.incomeType || null,
+		previousRealIncomeCents,
+		previousPlannedIncomeCents: prevBudget?.plannedIncomeCents ?? null,
 		currency: settings?.currency || 'MXN',
 		lines,
 		// Solo categorías y subcategorías visibles: son las que se ofrecen para
@@ -508,7 +608,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey } = ctx;
+		const { userId, monthKey, current, monthStartDay } = ctx;
 
 		const [categories, existingBudget] = await Promise.all([
 			getCategoriesByUser(userId),
@@ -519,7 +619,7 @@ export const actions = {
 		const catalogAll = await buildCatalogForUser(userId, categories, { includeHidden: true });
 
 		// Una categoría oculta solo se acepta si ya tenía una línea guardada en
-		// este mes. Así no se puede inyectar una oculta desde el cliente.
+		// este ciclo. Así no se puede inyectar una oculta desde el cliente.
 		const existingCategoryIds = new Set(
 			(existingBudget?.lines || []).map((line) => line.categoryId?.toString?.()).filter(Boolean)
 		);
@@ -639,69 +739,88 @@ export const actions = {
 			});
 		}
 
-		/** @type {{ monthlyIncomeCents?: number|null }} */
-		const settingsUpdates = {};
-		if (formData.has('monthlyIncome')) {
-			const incomeStr = formData.get('monthlyIncome')?.toString().trim() ?? '';
+		// Ingreso esperado del ciclo. Es independiente de los ingresos reales:
+		// guardarlo aquí no crea ningún movimiento.
+		// Si el formulario no trae el campo (cliente antiguo), se conserva el valor
+		// guardado. Si trae el campo vacío, se limpia explícitamente.
+		let plannedIncomeCents = existingBudget?.plannedIncomeCents ?? null;
+		if (formData.has('plannedIncome') || formData.has('monthlyIncome')) {
+			const rawIncome = formData.get('plannedIncome') ?? formData.get('monthlyIncome');
+			const incomeStr = rawIncome?.toString().trim() ?? '';
 			if (incomeStr !== '') {
-				const parsedIncome = parseAmountToCents(incomeStr);
-				if (parsedIncome === null || parsedIncome < 0) {
-					return fail(400, { error: 'El ingreso mensual no es válido.' });
+				plannedIncomeCents = parseAmountToCents(incomeStr);
+				if (plannedIncomeCents === null || plannedIncomeCents < 0) {
+					return fail(400, { error: 'El ingreso esperado no es válido.' });
 				}
-				settingsUpdates.monthlyIncomeCents = parsedIncome;
-			} else {
-				settingsUpdates.monthlyIncomeCents = null;
 			}
 		}
 
-		await Promise.all([
-			setBudgetLines(userId, monthKey, lines),
-			Object.keys(settingsUpdates).length > 0
-				? updateSettings(userId, settingsUpdates)
-				: Promise.resolve()
-		]);
+		await setBudget(userId, monthKey, {
+			lines,
+			plannedIncomeCents,
+			status: 'confirmed',
+			replacedConfirmed: false,
+			periodStart: existingBudget?.periodStart || current.start,
+			periodEndExclusive: existingBudget?.periodEndExclusive || current.end,
+			periodStartDay: existingBudget?.periodStartDay || monthStartDay
+		});
 
-		return { success: true, savedBudget: true };
+		return { success: true, savedBudget: true, confirmedBudget: true };
 	},
 
-	// Copia el presupuesto del mes anterior al mes actual. Nunca modifica el
-	// origen ni duplica movimientos reales.
-	copyPrevious: async (event) => {
+	// Crea una propuesta pendiente a partir del último presupuesto confirmado.
+	// Nunca modifica el origen ni copia movimientos reales; excluye categorías y
+	// subcategorías ocultas del ciclo nuevo.
+	propose: async (event) => {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey } = ctx;
-		const sourceKey = previousMonthKey(monthKey);
+		const { userId, monthKey, current, settings, monthStartDay } = ctx;
 
-		const [source, target, categories] = await Promise.all([
-			getBudget(userId, sourceKey),
-			getBudget(userId, monthKey),
-			getCategoriesByUser(userId)
+		const [source, target] = await Promise.all([
+			getPreviousConfirmedBudget(userId, current.start),
+			getBudget(userId, monthKey)
 		]);
 
 		if (!source || !Array.isArray(source.lines) || source.lines.length === 0) {
 			return fail(400, {
-				error: 'El mes anterior no tiene un presupuesto guardado para copiar.'
+				error: 'El ciclo anterior no tiene un presupuesto confirmado para proponer.'
 			});
 		}
 
-		const targetHasData = Array.isArray(target?.lines) && target.lines.length > 0;
+		const targetHasData =
+			!!target && ((target.lines?.length || 0) > 0 || target.status === 'draft');
 		if (targetHasData && formData.get('confirm') !== 'true') {
 			return fail(409, {
-				error: 'Ya existe un presupuesto para este mes. Confirma que quieres reemplazarlo.',
+				error:
+					'Ya existe un presupuesto o propuesta para este ciclo. Confirma que quieres reemplazarlo.',
 				needsCopyConfirm: true
 			});
 		}
 
-		// La migración de líneas legacy se hace en memoria: el mes origen no se
-		// modifica.
+		// El ciclo origen no se modifica. Si hubiera líneas legacy, se migran a
+		// categorías reales y se relee el catálogo para incluirlas.
 		const sourceLines = (await migrateLegacyBudgetLines(userId, source.lines)) || source.lines;
+		const categories = await getCategoriesByUser(userId);
 		const categoryById = new Map(categories.map((c) => [c._id.toString(), c]));
 		const catalogAll = await buildCatalogForUser(userId, categories, { includeHidden: true });
 
+		const visibleLines = filterVisibleBudgetLines(sourceLines, {
+			isCategoryVisible: (cid) => {
+				const cat = categoryById.get(cid);
+				return !!cat && !cat.isHidden;
+			},
+			isSubcategoryVisible: (cid, subKey) => {
+				const sub = (catalogAll.byCategoryId.get(cid) || []).find(
+					(candidate) => candidate.key === subKey
+				);
+				return !!sub && !sub.isHidden;
+			}
+		});
+
 		/** @type {any[]} */
 		const lines = [];
-		for (const line of cloneBudgetLines(sourceLines)) {
+		for (const line of cloneBudgetLines(visibleLines)) {
 			const cid = line.categoryId?.toString?.();
 			const cat = cid ? categoryById.get(cid) : null;
 			if (!cid || !cat) continue;
@@ -714,31 +833,79 @@ export const actions = {
 				line.subcategoryName = sub.name;
 			}
 			line.categoryName = cat.name;
+			line.categoryId = cat._id;
 			lines.push(line);
 		}
 
 		if (lines.length === 0) {
 			return fail(400, {
-				error: 'El presupuesto del mes anterior no tiene líneas válidas para copiar.'
+				error: 'El presupuesto anterior no tiene líneas visibles para proponer.'
 			});
 		}
 
-		await setBudgetLines(userId, monthKey, lines);
+		const incomeType = settings?.incomeType || null;
+		const plannedIncomeCents = incomeType === 'fixed' ? (source.plannedIncomeCents ?? null) : null;
+
+		await setBudget(userId, monthKey, {
+			lines,
+			plannedIncomeCents,
+			status: 'draft',
+			// Si reemplaza un presupuesto confirmado con líneas, se marca para
+			// impedir que "Descartar" borre el único presupuesto confirmado.
+			replacedConfirmed:
+				(target?.status === 'confirmed' && (target.lines?.length || 0) > 0) ||
+				!!target?.replacedConfirmed,
+			periodStart: target?.periodStart || current.start,
+			periodEndExclusive: target?.periodEndExclusive || current.end,
+			periodStartDay: target?.periodStartDay || monthStartDay
+		});
+
+		const proposedFromLabel =
+			source.periodStart instanceof Date && source.periodEndExclusive instanceof Date
+				? formatPeriodLabel(source.periodStart, source.periodEndExclusive)
+				: capitalize(monthKeyLabel(source.monthKey));
+
 		return {
 			success: true,
-			copiedPrevious: true,
-			copiedCount: lines.length,
-			copiedFrom: sourceKey
+			proposed: true,
+			proposedCount: lines.length,
+			proposedFrom: source.monthKey,
+			proposedFromLabel,
+			plannedIncomeCents
 		};
 	},
 
-	// Crea una categoría personalizada real y la agrega al presupuesto del mes
+	// Alias de compatibilidad con el flujo anterior de "copiar".
+	copyPrevious: async (event) => actions.propose(event),
+
+	discardDraft: async (event) => {
+		const formData = await event.request.formData();
+		const ctx = await requireCurrentMonth(event, formData);
+		if ('error' in ctx) return ctx.error;
+		const { userId, monthKey } = ctx;
+
+		const target = await getBudget(userId, monthKey);
+		if (!target || target.status !== 'draft') {
+			return fail(400, { error: 'No hay una propuesta pendiente para descartar.' });
+		}
+		if (target.replacedConfirmed) {
+			return fail(400, {
+				error:
+					'Esta propuesta reemplazó un presupuesto confirmado. Edítala y confírmala para no perder los importes.'
+			});
+		}
+
+		await deleteBudgetById(userId, target._id);
+		return { success: true, discardedDraft: true };
+	},
+
+	// Crea una categoría personalizada real y la agrega al presupuesto del ciclo
 	// actual.
 	createCategory: async (event) => {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey } = ctx;
+		const { userId, monthKey, current, monthStartDay } = ctx;
 		const name = formData.get('name')?.toString().trim() ?? '';
 
 		if (!name) {
@@ -783,7 +950,15 @@ export const actions = {
 				}));
 		}
 
-		await setBudgetLines(userId, monthKey, lines);
+		await setBudget(userId, monthKey, {
+			lines,
+			plannedIncomeCents: budget?.plannedIncomeCents ?? null,
+			status: budget?.status === 'draft' ? 'draft' : 'confirmed',
+			replacedConfirmed: !!budget?.replacedConfirmed,
+			periodStart: budget?.periodStart || current.start,
+			periodEndExclusive: budget?.periodEndExclusive || current.end,
+			periodStartDay: budget?.periodStartDay || monthStartDay
+		});
 		return { success: true, createdCategoryId: created.id };
 	},
 
@@ -839,7 +1014,7 @@ export const actions = {
 	},
 
 	// Oculta una categoría o subcategoría. Solo cambia su visibilidad en el
-	// catálogo: las líneas de presupuesto (incluido este mes) se conservan.
+	// catálogo: las líneas de presupuesto (incluido este ciclo) se conservan.
 	hideCustom: async (event) => {
 		const userId = event.locals.user.id;
 		const formData = await event.request.formData();

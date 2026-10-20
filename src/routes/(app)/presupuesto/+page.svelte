@@ -57,7 +57,8 @@
 	let pickerOpen = $state(false);
 	let newName = $state('');
 	let saving = $state(false);
-	let copying = $state(false);
+	let proposing = $state(false);
+	let discarding = $state(false);
 	let lastMonthKey = data.monthKey;
 
 	$effect(() => {
@@ -68,7 +69,8 @@
 			pickerOpen = false;
 			newName = '';
 			saving = false;
-			copying = false;
+			proposing = false;
+			discarding = false;
 		}
 	});
 
@@ -100,6 +102,8 @@
 			? null
 			: parseAmountToCents(String(income))
 	);
+	let expectedIncomeCents = $derived(data.isCurrentMonth ? incomeCents : data.incomeCents);
+	let realBalanceCents = $derived(data.realIncomeCents - data.spentCents);
 	let remaining = $derived(remainingFromIncome(incomeCents, plannedCents));
 	let usedPct = $derived(budgetUsedPct(plannedCents, incomeCents));
 
@@ -248,11 +252,22 @@
 		}
 	}
 
-	async function copyPreviousEnhance({ result, update }) {
+	async function proposeEnhance({ result, update }) {
 		await update();
-		copying = false;
+		proposing = false;
 		if (result.type === 'success') {
 			lines = sortLines(data.lines.map(mapLine));
+			income = data.incomePesos;
+			pickerOpen = false;
+		}
+	}
+
+	async function discardDraftEnhance({ result, update }) {
+		await update();
+		discarding = false;
+		if (result.type === 'success') {
+			lines = sortLines(data.lines.map(mapLine));
+			income = data.incomePesos;
 			pickerOpen = false;
 		}
 	}
@@ -292,8 +307,8 @@
 	<header class="header">
 		<h1 class="page-title">Presupuesto</h1>
 		<p class="subtitle">
-			Planea cuánto piensas gastar cada mes y compáralo con el gasto real. Los meses anteriores
-			quedan en solo lectura.
+			Planea cuánto piensas gastar en cada ciclo y compáralo con el gasto real. Los ciclos
+			anteriores quedan en solo lectura.
 		</p>
 	</header>
 
@@ -340,9 +355,22 @@
 					</option>
 				{/each}
 			</select>
-			{#if !data.isCurrentMonth}
-				<span class="readonly-badge">Solo lectura</span>
-			{/if}
+			<span class="period-range">{data.periodRangeLabel}</span>
+			<div class="month-badges">
+				{#if !data.isCurrentMonth}
+					<span class="readonly-badge">Solo lectura</span>
+				{/if}
+				{#if data.isTransitionPeriod}
+					<span class="status-badge transition">Transición</span>
+				{/if}
+				{#if data.isDraft}
+					<span class="status-badge draft">Propuesta pendiente</span>
+				{:else if data.hasStoredBudget}
+					<span class="status-badge confirmed">Confirmado</span>
+				{:else}
+					<span class="status-badge empty">Sin presupuesto</span>
+				{/if}
+			</div>
 		</div>
 
 		{#if data.canGoNext}
@@ -364,12 +392,54 @@
 	{/if}
 
 	{#if form?.savedBudget}
-		<div class="success-banner card">Presupuesto guardado correctamente</div>
+		<div class="success-banner card">Presupuesto confirmado correctamente</div>
 	{/if}
 
-	{#if form?.copiedPrevious}
+	{#if form?.proposed}
 		<div class="success-banner card">
-			Se copiaron {form.copiedCount} líneas del presupuesto anterior.
+			Se creó una propuesta con {form.proposedCount} líneas
+			{#if form.proposedFromLabel}desde {form.proposedFromLabel}{/if}. Revísala y confírmala para
+			guardarla como presupuesto del ciclo.
+		</div>
+	{/if}
+
+	{#if form?.discardedDraft}
+		<div class="success-banner card">Propuesta descartada.</div>
+	{/if}
+
+	{#if data.isDraft && data.isCurrentMonth}
+		<div class="draft-banner card">
+			<div class="draft-banner-copy">
+				<p class="draft-banner-title">Propuesta pendiente de confirmar</p>
+				<p class="draft-banner-desc">
+					Esta propuesta todavía no cuenta como presupuesto confirmado. Revisa los importes y
+					confirma al final; si no la necesitas, puedes descartarla.
+				</p>
+			</div>
+			{#if !data.replacedConfirmed}
+				<form
+					method="post"
+					action="?/discardDraft"
+					use:enhance={({ cancel }) => {
+						if (!window.confirm('¿Descartar esta propuesta pendiente?')) {
+							cancel();
+							return;
+						}
+						discarding = true;
+						return discardDraftEnhance;
+					}}
+				>
+					<input type="hidden" name="month" value={data.monthKey} />
+					<button type="submit" class="discard-btn btn-danger" disabled={discarding}>
+						{discarding ? 'Descartando…' : 'Descartar propuesta'}
+					</button>
+				</form>
+			{:else}
+				<p class="summary-hint">
+					Esta propuesta reemplazó un presupuesto confirmado; confírmala para no perder sus
+					importes.
+				</p>
+			{/if}
 		</div>
 	{/if}
 
@@ -377,19 +447,62 @@
 	<div class="summary-card card">
 		{#if data.isCurrentMonth}
 			<div class="income-field">
-				<label for="monthlyIncome" class="field-label">Ingreso mensual ($ MXN)</label>
+				<label for="plannedIncome" class="field-label">Ingreso esperado del ciclo ($ MXN)</label>
 				<input
 					type="text"
 					inputmode="decimal"
-					id="monthlyIncome"
-					name="monthlyIncome"
+					id="plannedIncome"
+					name="plannedIncome"
 					form="budgetForm"
 					bind:value={income}
 					placeholder="Ej. 18000"
 					class="input-field"
 				/>
+				{#if data.incomeIsFallback}
+					<span class="summary-hint"
+						>Tomado de tu ingreso mensual aproximado en Ajustes. Se guardará en este ciclo al
+						confirmar.</span
+					>
+				{:else if data.incomeType === 'fixed'}
+					<span class="summary-hint"
+						>Ingreso fijo: la propuesta usa el esperado del ciclo anterior.</span
+					>
+				{:else if data.incomeType === 'variable'}
+					<span class="summary-hint"
+						>Ingreso variable: no se precarga. Referencia: ingreso real del ciclo anterior
+						{formatMoney(data.previousRealIncomeCents)}.</span
+					>
+				{:else}
+					<span class="summary-hint"
+						>Define el tipo de ingresos en Ajustes para que la propuesta sepa si precargar el
+						esperado.</span
+					>
+				{/if}
 			</div>
 		{/if}
+
+		<div class="summary-grid three income-summary">
+			<div class="summary-item">
+				<span class="summary-label">Ingreso esperado</span>
+				<span class="summary-value" class:muted={expectedIncomeCents === null}>
+					{expectedIncomeCents !== null ? formatMoney(expectedIncomeCents) : 'Sin definir'}
+				</span>
+			</div>
+			<div class="summary-item">
+				<span class="summary-label">Ingreso real</span>
+				<span class="summary-value">{formatMoney(data.realIncomeCents)}</span>
+			</div>
+			<div class="summary-item">
+				<span class="summary-label">Balance real</span>
+				<span
+					class="summary-value"
+					class:positive={realBalanceCents >= 0}
+					class:negative={realBalanceCents < 0}
+				>
+					{formatMoney(realBalanceCents)}
+				</span>
+			</div>
+		</div>
 
 		<div class="summary-grid three">
 			<div class="summary-item">
@@ -415,7 +528,7 @@
 		{#if data.isCurrentMonth}
 			{#if remaining !== null}
 				<div class="income-line">
-					<span>Te quedaría del ingreso</span>
+					<span>Te quedaría del esperado</span>
 					<strong class:positive={remaining >= 0} class:negative={remaining < 0}>
 						{formatMoney(remaining)}
 					</strong>
@@ -432,13 +545,13 @@
 				{/if}
 			{:else}
 				<p class="summary-hint">
-					Escribe tu ingreso mensual para ver cuánto te quedaría disponible.
+					Escribe tu ingreso esperado del ciclo para ver cuánto te quedaría disponible.
 				</p>
 			{/if}
 		{:else}
 			<p class="summary-hint">
-				Consulta histórica: se conservan los importes y la clasificación aunque las categorías estén
-				ocultas.
+				Consulta histórica: se conservan las fechas, los importes y la clasificación aunque las
+				categorías estén ocultas.
 			</p>
 		{/if}
 
@@ -452,41 +565,49 @@
 	{#if data.isCurrentMonth}
 		{#if !data.hasStoredBudget}
 			<div class="draft-hint card">
-				Aún no has guardado un presupuesto para este mes. Asigna montos y guarda para iniciar el
-				historial mensual.
+				Aún no has guardado un presupuesto para este ciclo. Asigna montos y guarda para iniciar el
+				historial, o crea una propuesta desde el ciclo anterior.
 			</div>
 		{/if}
 
-		<!-- Copiar el presupuesto del mes anterior -->
+		<!-- Propuesta pendiente desde el último presupuesto confirmado -->
 		<form
 			method="post"
-			action="?/copyPrevious"
+			action="?/propose"
 			class="copy-form"
 			use:enhance={({ cancel }) => {
-				if (data.hasBudgetLines) {
+				if (data.hasBudgetLines || data.isDraft) {
 					const ok = window.confirm(
-						'Ya existe un presupuesto para este mes. ¿Quieres reemplazarlo con el presupuesto del mes anterior?'
+						'Ya existe un presupuesto o propuesta para este ciclo. ¿Quieres reemplazarlo con una propuesta del ciclo anterior?'
 					);
 					if (!ok) {
 						cancel();
 						return;
 					}
 				}
-				copying = true;
-				return copyPreviousEnhance;
+				proposing = true;
+				return proposeEnhance;
 			}}
 		>
 			<input type="hidden" name="month" value={data.monthKey} />
-			<input type="hidden" name="confirm" value={data.hasBudgetLines ? 'true' : 'false'} />
+			<input
+				type="hidden"
+				name="confirm"
+				value={data.hasBudgetLines || data.isDraft ? 'true' : 'false'}
+			/>
 			<button
 				type="submit"
 				class="btn-secondary w-full"
-				disabled={!data.prevMonthHasBudget || copying}
+				disabled={!data.prevMonthHasBudget || proposing}
 			>
-				{copying ? 'Copiando…' : `Copiar presupuesto de ${data.prevMonthLabel}`}
+				{proposing ? 'Proponiendo…' : `Proponer desde ${data.prevMonthLabel}`}
 			</button>
+			<p class="copy-hint">
+				Se crea una propuesta pendiente con las líneas visibles del último presupuesto confirmado.
+				Las categorías ocultas no se copian.
+			</p>
 			{#if !data.prevMonthHasBudget}
-				<p class="copy-hint">El mes anterior no tiene un presupuesto guardado.</p>
+				<p class="copy-hint">No hay un presupuesto confirmado anterior para proponer.</p>
 			{/if}
 		</form>
 
@@ -522,7 +643,7 @@
 					<h3 class="empty-heading">No tienes categorías en el presupuesto</h3>
 					<p class="empty-desc">
 						Usa “Añadir categoría” para crear una nueva o volver a incluir las que quieras
-						presupuestar este mes.
+						presupuestar en este ciclo.
 					</p>
 				</div>
 			{:else}
@@ -593,7 +714,7 @@
 							</div>
 
 							<div class="cat-meta">
-								<span class="cat-real">Real este mes: {formatMoney(line.spentCents)}</span>
+								<span class="cat-real">Real en el ciclo: {formatMoney(line.spentCents)}</span>
 								<span class="meta-tags">
 									{#if line.isCustom}<span class="custom-tag">Personalizada</span>{/if}
 									{#if line.isHidden}<span class="hidden-tag">Oculta</span>{/if}
@@ -833,7 +954,7 @@
 			</div>
 
 			<button type="submit" class="save-btn btn-primary w-full" disabled={saving}>
-				{saving ? 'Guardando...' : 'Guardar presupuesto'}
+				{saving ? 'Guardando...' : data.isDraft ? 'Confirmar presupuesto' : 'Guardar presupuesto'}
 			</button>
 		</form>
 
@@ -893,15 +1014,15 @@
 						<path d="M7 14l4-4 3 3 5-6" />
 					</svg>
 				</div>
-				<h3 class="empty-heading">Sin presupuesto guardado para este mes</h3>
+				<h3 class="empty-heading">Sin presupuesto guardado para este ciclo</h3>
 				<p class="empty-desc">
-					No hay un presupuesto mensual guardado. Abajo puedes consultar los gastos reales del
-					periodo; no se generan comparaciones presupuestarias inventadas.
+					No hay un presupuesto guardado para este ciclo. Abajo puedes consultar los gastos reales
+					del periodo; no se generan comparaciones presupuestarias inventadas.
 				</p>
 			</div>
 		{:else if lines.length === 0}
 			<div class="empty-state card">
-				<h3 class="empty-heading">El presupuesto de este mes no tiene líneas</h3>
+				<h3 class="empty-heading">El presupuesto de este ciclo no tiene líneas</h3>
 				<p class="empty-desc">
 					No se guardaron categorías para este periodo. El gasto real se muestra abajo.
 				</p>
@@ -947,7 +1068,7 @@
 						</div>
 
 						<div class="cat-meta">
-							<span class="cat-real">Real este mes: {formatMoney(line.spentCents)}</span>
+							<span class="cat-real">Real en el ciclo: {formatMoney(line.spentCents)}</span>
 							<span class="meta-tags">
 								{#if line.isCustom}<span class="custom-tag">Personalizada</span>{/if}
 								{#if line.isHidden}<span class="hidden-tag">Oculta</span>{/if}
@@ -1022,7 +1143,7 @@
 		<section class="unbudgeted card">
 			<h2 class="section-title">Gastos reales sin presupuesto</h2>
 			<p class="section-desc">
-				Cuentan en el gasto real del mes, pero no tienen una línea en el presupuesto. No se les
+				Cuentan en el gasto real del ciclo, pero no tienen una línea en el presupuesto. No se les
 				asigna un límite ficticio.
 			</p>
 			<div class="unbudgeted-list">
@@ -1156,7 +1277,23 @@
 		outline: none;
 	}
 
-	.readonly-badge {
+	.period-range {
+		font-size: 0.6875rem;
+		color: var(--app-text-secondary);
+		text-align: center;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.month-badges {
+		display: flex;
+		flex-wrap: wrap;
+		justify-content: center;
+		gap: 0.25rem;
+		margin-top: 0.125rem;
+	}
+
+	.readonly-badge,
+	.status-badge {
 		font-size: 0.625rem;
 		font-weight: 700;
 		text-transform: uppercase;
@@ -1165,6 +1302,29 @@
 		background: var(--input-bg);
 		padding: 0.0625rem 0.375rem;
 		border-radius: 999px;
+	}
+
+	.status-badge.confirmed {
+		color: var(--color-primary-700);
+		background: var(--color-primary-50);
+	}
+
+	.status-badge.draft {
+		color: var(--app-text);
+		background: var(--input-bg);
+		border: 1px dashed var(--app-text-secondary);
+	}
+
+	.status-badge.transition {
+		color: var(--app-text-secondary);
+		background: transparent;
+		border: 1px solid var(--color-primary-300);
+	}
+
+	.status-badge.empty {
+		color: var(--app-text-secondary);
+		background: transparent;
+		border: 1px solid var(--input-bg);
 	}
 
 	.error-banner {
@@ -1196,6 +1356,39 @@
 		line-height: 1.5;
 	}
 
+	.draft-banner {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.875rem 1rem;
+		margin-bottom: 1.25rem;
+		border-style: dashed;
+		background: var(--input-bg);
+	}
+
+	.draft-banner-copy {
+		min-width: 0;
+	}
+
+	.draft-banner-title {
+		font-size: 0.8125rem;
+		font-weight: 700;
+	}
+
+	.draft-banner-desc {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--app-text-secondary);
+	}
+
+	.discard-btn {
+		padding: 0.4375rem 0.75rem;
+		font-size: 0.75rem;
+		white-space: nowrap;
+	}
+
 	.summary-card {
 		padding: 1.25rem;
 		margin-bottom: 1.25rem;
@@ -1223,6 +1416,11 @@
 		&.three {
 			grid-template-columns: repeat(3, minmax(0, 1fr));
 		}
+	}
+
+	.income-summary {
+		padding-bottom: 0.875rem;
+		border-bottom: 1px dashed var(--input-bg);
 	}
 
 	.summary-item {

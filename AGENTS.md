@@ -154,13 +154,18 @@ tests/                         # node:test sobre lógica pura
   `src/lib/utils/periods.js` (`getPeriodRange`, `getMonthRange`, ...) en vez de
   `new Date()` directo.
 - Las fechas se guardan como `Date` UTC representando el día local (mediodía UTC
-  para movimientos). El "mes contable" empieza el día configurable
-  `settings.monthStartDay` (1–28).
-- Para presupuestos mensuales usa las claves canónicas `YYYY-MM` de
-  `periods.js`: `currentMonthKey`, `monthKeyFromDate`, `getMonthRangeByKey`,
-  `shiftMonthKey`, `previousMonthKey`, `nextMonthKey`, `isValidMonthKey`,
-  `monthKeyLabel`. Comparar claves canónicas con `<`/`>` es válido (orden
-  lexicográfico).
+  para movimientos). El ciclo contable empieza el día configurable
+  `settings.monthStartDay` (**1–28**; 29–31 se rechazan en validación y en la
+  acción de Ajustes).
+- Para presupuestos no basta `YYYY-MM`: usa los límites explícitos
+  `periodStart`/`periodEndExclusive` y `resolveCurrentPeriod`. Las claves
+  canónicas `YYYY-MM` de `periods.js` (`currentMonthKey`, `monthKeyFromDate`,
+  `getMonthRangeByKey`, `shiftMonthKey`, `previousMonthKey`, `nextMonthKey`,
+  `isValidMonthKey`, `monthKeyLabel`) siguen sirviendo para navegar y comparar
+  (orden lexicográfico), no para identificar unívocamente un periodo.
+- Para rangos visibles usa `periodBoundsFromStart`, `periodEndAfter`,
+  `isStandardPeriod` y `formatPeriodLabel`. El fin de un periodo es **exclusivo**
+  en la base de datos; la etiqueta muestra el último día inclusivo.
 
 ## Modelo de datos (MongoDB)
 
@@ -170,9 +175,13 @@ Colecciones propias (además de las de better-auth: `user`, `session`, `account`
   Los tickets con desglose dejan `categoryId = null` y reparten el gasto en `items`.
 - **`categories`**: catálogo del usuario. `{ userId, name, categoryKey, parentId, isFavorite, isHidden, isSystem, isCustom }`.
 - **`user_subcategories`**: subcategorías personalizadas. `{ userId, categoryId, key, name, isCustom, createdAt }`.
-- **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, monthStartDay }`.
+- **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, monthStartDay, incomeType }`. `monthStartDay` está limitado a **1–28** (29–31 se rechazan). `incomeType` es `'fixed' | 'variable' | null` y solo sirve para decidir si la propuesta de un ciclo nuevo precarga el ingreso esperado.
 - **`item_corrections`**: aprendizaje de ítems ambiguos de tickets.
-- **`budgets`**: uno por usuario **y mes** (índice único `{ userId, monthKey }`). `{ userId, monthKey: 'YYYY-MM', lines: [{ categoryId, subcategoryKey, plannedCents, categoryName, subcategoryName }] }` = gastos **planeados** del mes contable. `categoryName`/`subcategoryName` son _snapshots_ de respaldo (la UI prefiere el nombre vigente del catálogo).
+- **`budgets`**: uno por usuario **y periodo**. `{ userId, monthKey: 'YYYY-MM', periodStart: Date, periodEndExclusive: Date, periodStartDay: 1–28, periodInferred: boolean, plannedIncomeCents: number|null, status: 'draft'|'confirmed', replacedConfirmed: boolean, lines: [{ categoryId, subcategoryKey, plannedCents, categoryName, subcategoryName }] }`.
+  - `monthKey` es el mes calendario del **inicio** del periodo y se conserva para navegación (`?month=YYYY-MM`), pero **no identifica por sí solo** el periodo: los límites reales son `periodStart`/`periodEndExclusive` (fin exclusivo).
+  - `plannedIncomeCents` es el ingreso **esperado** del ciclo. No es un movimiento real y no se suma a los ingresos de `movements`.
+  - `status: 'draft'` es una propuesta pendiente de confirmar; solo `'confirmed'` cuenta como presupuesto.
+  - `categoryName`/`subcategoryName` son _snapshots_ de respaldo (la UI prefiere el nombre vigente del catálogo).
 
 `ensureIndexes()` (`src/lib/server/indexes.js`) crea los índices; corre una vez
 por proceso desde `(app)/+layout.server.js`.
@@ -245,20 +254,61 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 ## Presupuesto (planeado vs real)
 
 - Los gastos del presupuesto son **planeados** y viven en `budgets`; los gastos
-  reales en `movements`. No los mezcles.
-- **Un presupuesto por usuario y mes contable** (`monthKey: 'YYYY-MM'`, índice
-  único `{ userId, monthKey }`). Los meses están **aislados**: editar o copiar un
-  mes nunca toca otro. El mes se deriva del día de inicio configurado
-  (`settings.monthStartDay`) con `currentMonthKey`/`monthKeyFromDate`
-  (`src/lib/utils/periods.js`).
-- El **mes actual es editable**; los anteriores son de **solo lectura** (se navega
-  con flechas y un selector de meses; nunca al futuro). Un mes sin presupuesto
-  guardado muestra el estado explícito _"Sin presupuesto guardado para este mes"_
-  (no un presupuesto en cero inventado) y, si hay gasto real, se lista aparte.
-- **Copiar el mes anterior** es una acción explícita (`?/copyPrevious`) que solo
-  aplica al mes actual, nunca modifica el mes origen, no crea movimientos reales y
-  pide confirmación (o falla con `409`) si el destino ya tiene líneas. Copia las
-  líneas con sus importes y conserva el estado oculto (no reactiva nada).
+  reales en `movements`. No los mezcles. El ingreso esperado del ciclo vive en
+  `budgets.plannedIncomeCents` y tampoco es un movimiento real.
+- **Un presupuesto por usuario y periodo**. El identificador de negocio son los
+  límites `periodStart`/`periodEndExclusive` (fin exclusivo), no solo
+  `monthKey`. `monthKey: 'YYYY-MM'` es el mes calendario del inicio, se mantiene
+  **único por construcción** para los ciclos nuevos y se conserva para la
+  navegación `?month=YYYY-MM`.
+- **Resolución del ciclo actual**: `resolveCurrentPeriod` busca primero un
+  presupuesto que contenga la fecha (`periodStart <= hoy < periodEndExclusive`).
+  Si no existe, calcula el ciclo ingenuo con `monthStartDay`; si el último
+  presupuesto confirmado termina después de ese inicio, el ciclo nuevo empieza
+  **donde termina el anterior** (periodo de transición) y su fin es el mismo día
+  del mes siguiente (`periodEndAfter`). Los borradores no sirven de ancla.
+  - El **cambio de `monthStartDay`** solo afecta al siguiente ciclo. Los
+    presupuestos guardados conservan sus fechas y no se reinterpretan; por eso
+    el historial no cambia aunque el usuario ajuste el día de inicio.
+  - `migrateBudgetPeriods` rellena límites faltantes de presupuestos anteriores
+    usando el `monthStartDay` vigente y marca `periodInferred: true`. No inventa
+    presupuestos ni ingresos.
+- **Índices**: único parcial `{ userId, periodStart }` (solo documentos con
+  `periodStart` date) para impedir dos presupuestos en el mismo periodo, y no
+  único `{ userId, monthKey }` para navegación/compatibilidad. El índice único
+  anterior `{ userId, monthKey }` se retira. `ensureIndexes()` deduplica periodos
+  de forma conservadora (no borra líneas) y aparta duplicados legacy con una
+  clave `legacy-<id>`.
+- El **ciclo actual es editable**; los anteriores son de **solo lectura** (se
+  navega con flechas y un selector de meses; nunca al futuro). Un ciclo sin
+  presupuesto guardado muestra el estado explícito _"Sin presupuesto guardado
+  para este ciclo"_ (no un presupuesto en cero inventado) y, si hay gasto real,
+  se lista aparte.
+- **Propuesta explícita** (`?/propose`, alias `?/copyPrevious`): solo aplica al
+  ciclo actual, toma el **último presupuesto confirmado** anterior (aunque se
+  hayan saltado meses) y crea un documento `status: 'draft'`. Excluye por
+  defecto las categorías/subcategorías **ocultas** del ciclo nuevo y nunca
+  modifica el ciclo origen ni crea movimientos reales. Las líneas ocultas de un
+  presupuesto ya existente se conservan.
+  - Si el destino ya tiene líneas o es un borrador, se pide confirmación y el
+    servidor falla con `409` (`needsCopyConfirm`) si no llega `confirm=true`.
+  - `?/save` confirma y guarda (`status: 'confirmed'`). `?/discardDraft` solo
+    elimina un borrador; si el borrador reemplazó un presupuesto confirmado
+    (`replacedConfirmed: true`) se bloquea para no perder importes.
+  - Una propuesta pendiente **no cuenta** como presupuesto confirmado en Inicio:
+    solo muestra un aviso con enlace a Presupuesto.
+- **Ingreso esperado vs real**:
+  - `plannedIncomeCents` es propio de cada ciclo y se edita junto al
+    presupuesto. Confirmarlo **no crea** un movimiento de ingreso.
+  - `settings.incomeType` decide el prellenado de la propuesta: `'fixed'` copia
+    el esperado del ciclo anterior; `'variable'` no precarga (el ingreso real
+    anterior se muestra solo como referencia); `null` no precarga.
+  - `settings.monthlyIncomeCents` es una referencia general y solo se usa como
+    _fallback_ de prellenado en el ciclo actual cuando no hay ingreso esperado
+    guardado. Nunca se usa para el historial, ni con ingresos variables, ni para
+    una propuesta pendiente.
+  - En la UI conviven el ingreso esperado, el ingreso real del periodo y el
+    balance real; no se suman entre sí.
 - La pantalla lista por defecto **todas** las categorías visibles de gasto cuando
   aún no hay presupuesto guardado. Cada categoría es expandible a sus
   **subcategorías** (con un chevron). El usuario asigna monto a la categoría
@@ -281,20 +331,23 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
   formulario reemplaza todas las líneas, y siempre incluye un `general|` por
   categoría incluida aunque sea 0).
 - **Migración legacy**: el modelo anterior tenía un único presupuesto por usuario
-  (`{ userId }`). `migrateLegacyBudgets(userId, currentMonthKey)` lo asigna de forma
-  idempotente al mes contable actual **solo si no existe ya** un presupuesto de ese
-  mes; no inventa meses históricos. `ensureIndexes()` retira el índice único legacy
-  `{ userId }` y crea `{ userId, monthKey }`. Si hubiera documentos legacy
-  duplicados, se conservan con una clave no canónica (`legacy-<id>`) para no perder
-  información.
+  (`{ userId }`). `migrateLegacyBudgets(userId, currentMonthKey, monthStartDay)` lo
+  asigna de forma idempotente al ciclo contable actual **solo si no existe ya** un
+  presupuesto de ese ciclo; no inventa meses históricos. Si hubiera documentos
+  legacy duplicados, se conservan con una clave no canónica (`legacy-<id>`) para
+  no perder información.
 - **Categorías personalizadas**: son **categorías reales** (ver sección
   siguiente), no etiquetas solo de presupuesto. Se crean desde el presupuesto o
   desde Ajustes → Categorías y se comportan como cualquier otra: aparecen en
   Registrar, Escanear y Movimientos, y reciben gasto real.
 - Lógica pura en `src/lib/utils/budget-math.js` (`sumPlannedCents`,
-  `budgetHasPlanned`, `cloneBudgetLines`, `plannedCentsByCategory`,
-  `plannedCategoryCount`, `buildBudgetLinesFromForm`, `remainingFromIncome`,
-  `budgetUsedPct`, ...).
+  `budgetHasPlanned`, `cloneBudgetLines`, `filterVisibleBudgetLines`,
+  `plannedCentsByCategory`, `plannedCategoryCount`, `buildBudgetLinesFromForm`,
+  `remainingFromIncome`, `budgetUsedPct`, ...).
+- Utilidades de periodos en `src/lib/utils/periods.js`: `isValidStartDay` (1–28),
+  `periodBoundsFromStart`, `periodEndAfter`, `isStandardPeriod`,
+  `resolvePeriodForDate`, `formatPeriodLabel`, además de las claves canónicas
+  `YYYY-MM`.
 - Gasto real por subcategoría: `getSpendingByCategorySubcategory` en
   `src/lib/server/analytics/spending-by-subcategory.js`. La comparación contra lo
   real se arma en `presupuesto/+page.server.js` (por categoría con
@@ -314,9 +367,14 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 - Al agregar un archivo de test, **actualiza el script `test`** en `package.json`.
   Ejecuta `pnpm test` antes de dar por terminado un cambio.
 - Cobertura relevante del presupuesto: `tests/budget.test.js` (matemática pura),
-  `tests/budget-periods.test.js` (claves de mes, `cloneBudgetLines`,
-  `budgetHasPlanned`) y `tests/catalog-usage.test.js` (referencias de
-  movimiento/ítem/presupuesto y borrado del padre con subcategorías hijas).
+  `tests/budget-periods.test.js` (claves de mes, límites explícitos, transición,
+  validación de día 1–28 e `incomeType`, `cloneBudgetLines`,
+  `filterVisibleBudgetLines`, `budgetHasPlanned`) y
+  `tests/catalog-usage.test.js` (referencias de movimiento/ítem/presupuesto y
+  borrado del padre con subcategorías hijas).
+- Los casos de unicidad/idempotencia/multiusuario de Mongo (índices de periodo,
+  migraciones, propuesta y descarte) son **verificación manual**: no hay harness
+  de Mongo en los tests.
 
 ## Lint y formato
 

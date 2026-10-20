@@ -6,8 +6,14 @@ const LEGACY_MONTH_FILTER = {
 };
 
 /**
- * Elimina el índice único legacy `{ userId: 1 }` (impedía tener más de un mes)
- * y deja un único índice `{ userId: 1, monthKey: 1 }`.
+ * Índices de presupuestos:
+ *  - único por `{ userId, periodStart }` (parcial: solo documentos con fechas),
+ *  - no único por `{ userId, monthKey }` para navegación/compatibilidad.
+ *
+ * El índice único anterior `{ userId, monthKey }` se retira porque la identidad
+ * del presupuesto son los límites del periodo. `monthKey` se conserva como
+ * índice no único de navegación/compatibilidad; la unicidad de periodo la
+ * garantiza el índice parcial `{ userId, periodStart }`.
  * @param {import('mongodb').Db} db
  */
 async function ensureBudgetIndexes(db) {
@@ -22,21 +28,35 @@ async function ensureBudgetIndexes(db) {
 		if (/** @type {any} */ (err)?.code !== 26) throw err;
 	}
 
+	let hasGoodPeriodIndex = false;
+	let hasMonthIndex = false;
+
 	for (const index of indexes) {
 		if (index.name === '_id_') continue;
 		const keys = Object.keys(index.key || {});
-		// Cualquier índice de un solo campo `userId` es del modelo legacy.
-		if (keys.length === 1 && keys[0] === 'userId') {
+		const isLegacyUser = keys.length === 1 && keys[0] === 'userId';
+		const isMonthIndex = keys.length === 2 && keys[0] === 'userId' && keys[1] === 'monthKey';
+		const isPeriodIndex = keys.length === 2 && keys[0] === 'userId' && keys[1] === 'periodStart';
+		const isOldUniqueMonth = isMonthIndex && index.unique === true;
+		const isWrongPeriod =
+			isPeriodIndex && (index.unique !== true || !index.partialFilterExpression?.periodStart);
+
+		if (isLegacyUser || isOldUniqueMonth || isWrongPeriod) {
 			try {
 				await budgets.dropIndex(index.name);
 			} catch (err) {
 				if (/** @type {any} */ (err)?.code !== 27) throw err;
 			}
+			continue;
+		}
+		if (isMonthIndex) hasMonthIndex = true;
+		if (isPeriodIndex && index.unique === true && index.partialFilterExpression?.periodStart) {
+			hasGoodPeriodIndex = true;
 		}
 	}
 
 	// Si por datos corruptos hubiera varios legacy por usuario, se conserva el
-	// más reciente con `monthKey: null` (luego se migra al mes actual) y los
+	// más reciente con `monthKey: null` (luego se migra al ciclo actual) y los
 	// demás se apartan con una clave no canónica para no perder información.
 	/** @type {any[]} */
 	const legacyDocs = await budgets
@@ -59,7 +79,42 @@ async function ensureBudgetIndexes(db) {
 		}
 	}
 
-	await budgets.createIndex({ userId: 1, monthKey: 1 }, { unique: true });
+	if (!hasGoodPeriodIndex) {
+		// Deduplica periodos antes de crear el índice único. El documento más
+		// reciente conserva el periodo; los demás se apartan sin borrar datos.
+		/** @type {any[]} */
+		const withPeriod = await budgets
+			.find({ periodStart: { $type: 'date' } })
+			.sort({ updatedAt: -1, createdAt: -1 })
+			.toArray();
+		const seen = new Set();
+		for (const doc of withPeriod) {
+			const key = `${doc.userId}|${doc.periodStart.toISOString()}`;
+			if (seen.has(key)) {
+				await budgets.updateOne(
+					{ _id: doc._id },
+					{
+						$set: {
+							isLegacyDuplicate: true,
+							monthKey: `legacy-${doc._id.toString()}`
+						},
+						$unset: { periodStart: '', periodEndExclusive: '' }
+					}
+				);
+				continue;
+			}
+			seen.add(key);
+		}
+
+		await budgets.createIndex(
+			{ userId: 1, periodStart: 1 },
+			{ unique: true, partialFilterExpression: { periodStart: { $type: 'date' } } }
+		);
+	}
+
+	if (!hasMonthIndex) {
+		await budgets.createIndex({ userId: 1, monthKey: 1 });
+	}
 }
 
 /**
@@ -90,7 +145,7 @@ export async function ensureIndexes() {
 		db.collection('item_corrections').createIndex({ userId: 1, store: 1, normalizedDescription: 1 })
 	]);
 
-	// Presupuestos: un documento por usuario y mes. Debe correr después de
-	// retirar el índice único legacy por usuario.
+	// Presupuestos: un documento por usuario y periodo explícito. Debe correr
+	// después de retirar los índices legacy.
 	await ensureBudgetIndexes(db);
 }

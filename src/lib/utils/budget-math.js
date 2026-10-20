@@ -59,6 +59,28 @@ export function cloneBudgetLines(lines) {
 }
 
 /**
+ * Filtra las líneas que se pueden proponer en un ciclo nuevo: solo categorías
+ * y subcategorías visibles. No muta el origen. Las líneas ocultas de ciclos
+ * existentes se conservan en su propio presupuesto; al proponer no se arrastran.
+ * @param {Array<{ categoryId?: any, subcategoryKey?: string|null }>} [lines]
+ * @param {{
+ *   isCategoryVisible: (categoryId: string) => boolean,
+ *   isSubcategoryVisible?: (categoryId: string, subcategoryKey: string) => boolean
+ * }} options
+ * @returns {Array<{ categoryId?: any, subcategoryKey?: string|null }>}
+ */
+export function filterVisibleBudgetLines(lines, options) {
+	const isCategoryVisible = options?.isCategoryVisible ?? (() => true);
+	const isSubcategoryVisible = options?.isSubcategoryVisible ?? (() => true);
+	return (lines || []).filter((line) => {
+		const cid = line?.categoryId?.toString?.() ?? (line?.categoryId ? String(line.categoryId) : '');
+		if (!cid || !isCategoryVisible(cid)) return false;
+		if (line?.subcategoryKey && !isSubcategoryVisible(cid, line.subcategoryKey)) return false;
+		return true;
+	});
+}
+
+/**
  * Suma el gasto REAL registrado en las categorías del presupuesto.
  * @param {Array<{ spentCents?: number }>} [lines]
  * @returns {number}

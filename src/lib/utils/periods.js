@@ -171,6 +171,134 @@ export function getMonthRangeByKey(monthKey, monthStartDay = 1) {
 }
 
 /**
+ * Valida el día de inicio del ciclo. La app solo admite 1–28 para evitar
+ * fechas inexistentes en febrero y meses cortos.
+ * @param {number} day
+ * @returns {boolean}
+ */
+export function isValidStartDay(day) {
+	return Number.isInteger(day) && day >= 1 && day <= 28;
+}
+
+/**
+ * Clave `YYYY-MM` del mes calendario de una fecha, sin aplicar `monthStartDay`.
+ * Para un periodo de transición (p. ej. 1 nov – 15 dic) la clave es el mes en
+ * que inicia el periodo, no el mes contable que resultaría del nuevo día.
+ * @param {Date} date
+ * @returns {string}
+ */
+export function monthKeyOfDate(date) {
+	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Fin exclusivo de un periodo que inicia en `start`: el mismo día del mes
+ * calendario siguiente. Como `startDay` está limitado a 1–28, la fecha siempre
+ * existe.
+ * @param {Date} start
+ * @param {number} [startDay]
+ * @returns {Date}
+ */
+export function periodEndAfter(start, startDay = 1) {
+	if (!isValidStartDay(startDay)) {
+		throw new Error(`Día de inicio inválido: ${startDay}`);
+	}
+	return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, startDay));
+}
+
+/**
+ * Límites de un periodo a partir de su fecha de inicio.
+ * @param {Date} start
+ * @param {number} [startDay]
+ * @returns {{ start: Date, end: Date, monthKey: string }}
+ */
+export function periodBoundsFromStart(start, startDay = 1) {
+	if (!(start instanceof Date) || Number.isNaN(start.getTime())) {
+		throw new Error('Fecha de inicio inválida');
+	}
+	const normalized = new Date(
+		Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())
+	);
+	return {
+		start: normalized,
+		end: periodEndAfter(normalized, startDay),
+		monthKey: monthKeyOfDate(normalized)
+	};
+}
+
+/**
+ * ¿El periodo es un ciclo estándar de un mes (mismo día en el mes siguiente)?
+ * Los periodos de transición por cambio de `monthStartDay` no lo son.
+ * @param {Date} start
+ * @param {Date} end
+ * @param {number} [startDay]
+ * @returns {boolean}
+ */
+export function isStandardPeriod(start, end, startDay = 1) {
+	if (!(start instanceof Date) || !(end instanceof Date)) return false;
+	if (!isValidStartDay(startDay)) return false;
+	if (start.getUTCDate() !== startDay || end.getUTCDate() !== startDay) return false;
+	const expected = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, startDay));
+	return expected.getTime() === end.getTime();
+}
+
+/**
+ * Resuelve el periodo que contiene `referenceDate` respetando el fin del último
+ * presupuesto confirmado. Si un cambio de `monthStartDay` haría que el periodo
+ * calculado se solape con el último presupuesto, el nuevo periodo empieza donde
+ * termina el anterior y se marca como transición. Así no hay solapamientos ni
+ * huecos por el cambio de configuración.
+ * @param {Date} referenceDate
+ * @param {number} [monthStartDay]
+ * @param {Date|null} [latestConfirmedEnd] - Fin exclusivo del último presupuesto confirmado anterior o igual a la fecha.
+ * @returns {{ start: Date, end: Date, monthKey: string, startDay: number, isTransition: boolean }}
+ */
+export function resolvePeriodForDate(referenceDate, monthStartDay = 1, latestConfirmedEnd = null) {
+	const naive = getMonthRange(referenceDate, monthStartDay);
+
+	if (
+		latestConfirmedEnd instanceof Date &&
+		!Number.isNaN(latestConfirmedEnd.getTime()) &&
+		latestConfirmedEnd.getTime() > naive.start.getTime() &&
+		latestConfirmedEnd.getTime() <= referenceDate.getTime()
+	) {
+		const bounds = periodBoundsFromStart(latestConfirmedEnd, monthStartDay);
+		return { ...bounds, startDay: monthStartDay, isTransition: true };
+	}
+
+	return {
+		start: naive.start,
+		end: naive.end,
+		monthKey: monthKeyOfDate(naive.start),
+		startDay: monthStartDay,
+		isTransition: false
+	};
+}
+
+/**
+ * Etiqueta legible de un periodo con sus fechas reales.
+ * @param {Date} start
+ * @param {Date} end - Fin exclusivo.
+ * @param {{ includeYear?: boolean }} [options]
+ * @returns {string}
+ */
+export function formatPeriodLabel(start, end, options = {}) {
+	const { includeYear = true } = options;
+	const endInclusive = new Date(end.getTime() - 86400000);
+	const sameYear = start.getUTCFullYear() === endInclusive.getUTCFullYear();
+	const base = { day: 'numeric', month: 'short', timeZone: 'UTC' };
+	const startLabel = start.toLocaleDateString(
+		'es-MX',
+		sameYear ? base : { ...base, year: 'numeric' }
+	);
+	const endLabel = endInclusive.toLocaleDateString(
+		'es-MX',
+		includeYear ? { ...base, year: 'numeric' } : base
+	);
+	return `${startLabel} – ${endLabel}`;
+}
+
+/**
  * Desplaza una clave de mes `YYYY-MM` N meses (positivo o negativo).
  * @param {string} monthKey
  * @param {number} delta

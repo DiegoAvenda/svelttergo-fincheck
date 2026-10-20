@@ -126,7 +126,7 @@
 			class:active={selectedPeriod === 'this-month'}
 			onclick={() => handlePeriodChange('this-month')}
 		>
-			Este mes
+			Este ciclo
 		</button>
 		<button
 			type="button"
@@ -134,7 +134,7 @@
 			class:active={selectedPeriod === 'last-month'}
 			onclick={() => handlePeriodChange('last-month')}
 		>
-			Mes pasado
+			Ciclo anterior
 		</button>
 		<button
 			type="button"
@@ -142,7 +142,7 @@
 			class:active={selectedPeriod === 'last-3-months'}
 			onclick={() => handlePeriodChange('last-3-months')}
 		>
-			3 meses
+			3 ciclos
 		</button>
 		<button
 			type="button"

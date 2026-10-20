@@ -1,6 +1,6 @@
 import { getDb } from '$lib/server/db.js';
 
-/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, monthlyIncomeCents: number|null, currency: string, monthStartDay: number }} Settings */
+/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, monthlyIncomeCents: number|null, currency: string, monthStartDay: number, incomeType: 'fixed'|'variable'|null }} Settings */
 
 /**
  * @param {string} userId
@@ -13,23 +13,30 @@ export async function getSettings(userId) {
 
 /**
  * @param {string} userId
- * @param {{ monthlyIncomeCents?: number|null, currency?: string, monthStartDay?: number }} data
+ * @param {{ monthlyIncomeCents?: number|null, currency?: string, monthStartDay?: number, incomeType?: 'fixed'|'variable'|null }} data
  * @returns {Promise<import('mongodb').UpdateResult>}
  */
 export async function upsertSettings(userId, data) {
 	const db = await getDb();
+	/** @type {Record<string, any>} */
+	const set = {
+		userId,
+		monthlyIncomeCents: data.monthlyIncomeCents ?? null,
+		currency: data.currency ?? 'MXN',
+		monthStartDay: data.monthStartDay ?? 1,
+		updatedAt: new Date()
+	};
+	// `incomeType` es una preferencia posterior al onboarding: no la borres si
+	// `upsertSettings` se vuelve a ejecutar (p. ej. al repetir la bienvenida).
+	if (data.incomeType !== undefined) set.incomeType = data.incomeType ?? null;
+
 	return db.collection('settings').updateOne(
 		{ userId },
 		{
-			$set: {
-				userId,
-				monthlyIncomeCents: data.monthlyIncomeCents ?? null,
-				currency: data.currency ?? 'MXN',
-				monthStartDay: data.monthStartDay ?? 1,
-				updatedAt: new Date()
-			},
+			$set: set,
 			$setOnInsert: {
-				createdAt: new Date()
+				createdAt: new Date(),
+				...(data.incomeType === undefined ? { incomeType: null } : {})
 			}
 		},
 		{ upsert: true }
@@ -38,12 +45,11 @@ export async function upsertSettings(userId, data) {
 
 /**
  * @param {string} userId
- * @param {Partial<Pick<Settings, 'monthlyIncomeCents' | 'currency' | 'monthStartDay'>>} updates
+ * @param {Partial<Pick<Settings, 'monthlyIncomeCents' | 'currency' | 'monthStartDay' | 'incomeType'>>} updates
  */
 export async function updateSettings(userId, updates) {
 	const db = await getDb();
-	return db.collection('settings').updateOne(
-		{ userId },
-		{ $set: { ...updates, updatedAt: new Date() } }
-	);
+	return db
+		.collection('settings')
+		.updateOne({ userId }, { $set: { ...updates, updatedAt: new Date() } });
 }

@@ -6,6 +6,7 @@
 	let monthlyIncome = $state(data.settings.monthlyIncomePesos);
 	let currency = $state(data.settings.currency);
 	let monthStartDay = $state(data.settings.monthStartDay);
+	let incomeType = $state(data.settings.incomeType || '');
 	let saving = $state(false);
 	let loggingOut = $state(false);
 </script>
@@ -146,12 +147,26 @@
 					class="input-field"
 				/>
 				<span class="field-hint"
-					>Sirve de referencia para calcular el % de ingresos que representa cada hábito.</span
+					>Referencia general para calcular el % de ingresos de cada hábito. El ingreso esperado de
+					cada ciclo se define en Presupuesto y no crea ingresos reales.</span
 				>
 			</div>
 
 			<div class="field">
-				<label for="monthStartDay" class="field-label">Día de inicio del mes contable</label>
+				<label for="incomeType" class="field-label">Tipo de ingresos</label>
+				<select id="incomeType" name="incomeType" bind:value={incomeType} class="input-field">
+					<option value="">Prefiero no definirlo</option>
+					<option value="fixed">Fijos o recurrentes</option>
+					<option value="variable">Variables</option>
+				</select>
+				<span class="field-hint"
+					>Se usa para proponer el ingreso esperado del siguiente ciclo. Si son variables, no se
+					precarga: solo se muestra el ingreso real anterior como referencia.</span
+				>
+			</div>
+
+			<div class="field">
+				<label for="monthStartDay" class="field-label">Día de inicio del ciclo</label>
 				<select
 					id="monthStartDay"
 					name="monthStartDay"
@@ -162,7 +177,10 @@
 						<option value={day}>Día {day} de cada mes</option>
 					{/each}
 				</select>
-				<span class="field-hint">Útil si tu quincena o nómina cae los días 15 o 30.</span>
+				<span class="field-hint"
+					>Se admite del 1 al 28. Cambiarlo no modifica los presupuestos guardados: se aplica al
+					siguiente ciclo.</span
+				>
 			</div>
 
 			<div class="field">
