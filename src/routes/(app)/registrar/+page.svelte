@@ -226,6 +226,7 @@
 
 			{#if showMore}
 				<div class="more-fields card">
+					{#if type === 'expense'}
 					<div class="field">
 						<label for="merchant" class="field-label">Comercio o lugar</label>
 						<input
@@ -237,6 +238,7 @@
 							class="input-field"
 						/>
 					</div>
+					{/if}
 
 					<div class="field">
 						<label for="date" class="field-label">Fecha</label>
