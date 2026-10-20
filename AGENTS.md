@@ -156,6 +156,11 @@ tests/                         # node:test sobre lógica pura
 - Las fechas se guardan como `Date` UTC representando el día local (mediodía UTC
   para movimientos). El "mes contable" empieza el día configurable
   `settings.monthStartDay` (1–28).
+- Para presupuestos mensuales usa las claves canónicas `YYYY-MM` de
+  `periods.js`: `currentMonthKey`, `monthKeyFromDate`, `getMonthRangeByKey`,
+  `shiftMonthKey`, `previousMonthKey`, `nextMonthKey`, `isValidMonthKey`,
+  `monthKeyLabel`. Comparar claves canónicas con `<`/`>` es válido (orden
+  lexicográfico).
 
 ## Modelo de datos (MongoDB)
 
@@ -167,7 +172,7 @@ Colecciones propias (además de las de better-auth: `user`, `session`, `account`
 - **`user_subcategories`**: subcategorías personalizadas. `{ userId, categoryId, key, name, isCustom, createdAt }`.
 - **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, monthStartDay }`.
 - **`item_corrections`**: aprendizaje de ítems ambiguos de tickets.
-- **`budgets`**: uno por usuario (índice único). `{ userId, lines: [{ categoryId, subcategoryKey, plannedCents }] }` = gastos **planeados**.
+- **`budgets`**: uno por usuario **y mes** (índice único `{ userId, monthKey }`). `{ userId, monthKey: 'YYYY-MM', lines: [{ categoryId, subcategoryKey, plannedCents, categoryName, subcategoryName }] }` = gastos **planeados** del mes contable. `categoryName`/`subcategoryName` son _snapshots_ de respaldo (la UI prefiere el nombre vigente del catálogo).
 
 `ensureIndexes()` (`src/lib/server/indexes.js`) crea los índices; corre una vez
 por proceso desde `(app)/+layout.server.js`.
@@ -198,13 +203,31 @@ por proceso desde `(app)/+layout.server.js`.
 - `ensureFixedCategories(userId)` se ejecuta en cada request a `(app)` y
   auto-migra categorías legacy de forma idempotente. **Ignora `isCustom`** (no
   borra lo del usuario). No borres categorías con movimientos ni la de sistema.
-- Borrar una categoría/subcategoría personalizada **reasigna** sus movimientos,
-  ítems y correcciones a "Sin clasificar" (no bloquea, no pierde datos) y limpia
-  las líneas de presupuesto que la usaban. Las del catálogo fijo **no** se pueden
-  borrar ni renombrar.
+- Borrar una categoría/subcategoría personalizada **solo se permite si no tiene
+  ninguna referencia**: movimientos, `items` de tickets **o líneas de presupuesto
+  de cualquier mes**. Si tiene referencias se bloquea y se ofrece **Ocultar**: el
+  servidor vuelve a comprobar las referencias al momento de borrar (los flags que
+  manda el cliente son solo informativos). Al borrar (sin referencias) se limpian
+  correcciones, subcategorías hijas y líneas de presupuesto. Las del catálogo fijo
+  **no** se pueden borrar ni renombrar.
+- `getCatalogUsage(userId)` (`custom-catalog.js`) devuelve `categoryIds`/
+  `subcategoryKeys` (movimientos) y `budgetCategoryIds`/`budgetSubcategoryKeys`
+  (todos los meses), más la unión `referenced*`, que es la que decide borrar.
+  La lógica pura vive en `src/lib/utils/catalog-usage.js`
+  (`buildCatalogUsageSets`, `categoryHasReferences`, `subcategoryHasReferences`).
+- **Ocultar nunca borra datos**: solo cambia la visibilidad del catálogo. Las
+  líneas de presupuesto (históricas y del mes activo) y los movimientos se
+  conservan con sus importes; el historial sigue mostrando los nombres de las
+  categorías ocultas.
+- El historial (Inicio, Movimientos —incluido su filtro—, detalle, Hábitos,
+  presupuesto y exportación) resuelve nombres con **todas** las
+  categorías/subcategorías, incluidas las ocultas; los selectores de captura
+  (Registrar/Escanear) y las **nuevas** asignaciones del presupuesto usan solo las
+  visibles/no ocultas.
 - `ajustes/categorias` permite crear (categoría o subcategoría bajo un padre),
-  renombrar y borrar **solo** lo personalizado; favoritos/ocultar aplican a las
-  categorías. Las subcategorías del catálogo fijo se muestran sin acciones.
+  renombrar, ocultar/mostrar y borrar **solo** lo personalizado; favoritos/ocultar
+  aplican a las categorías y las subcategorías personalizadas también se pueden
+  ocultar. Las subcategorías del catálogo fijo se muestran sin acciones.
 - Cuando agregues una categoría o subcategoría al catálogo, corre/actualiza
   `tests/subcategories.test.js` (valida coherencia key ↔ categoría).
 
@@ -223,31 +246,64 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 
 - Los gastos del presupuesto son **planeados** y viven en `budgets`; los gastos
   reales en `movements`. No los mezcles.
-- La pantalla `/presupuesto` lista por defecto **todas** las categorías de gasto
-  (cuando el usuario aún no guarda un presupuesto). Cada categoría es expandible a
-  sus **subcategorías** (con un chevron). El usuario asigna monto a la categoría
+- **Un presupuesto por usuario y mes contable** (`monthKey: 'YYYY-MM'`, índice
+  único `{ userId, monthKey }`). Los meses están **aislados**: editar o copiar un
+  mes nunca toca otro. El mes se deriva del día de inicio configurado
+  (`settings.monthStartDay`) con `currentMonthKey`/`monthKeyFromDate`
+  (`src/lib/utils/periods.js`).
+- El **mes actual es editable**; los anteriores son de **solo lectura** (se navega
+  con flechas y un selector de meses; nunca al futuro). Un mes sin presupuesto
+  guardado muestra el estado explícito _"Sin presupuesto guardado para este mes"_
+  (no un presupuesto en cero inventado) y, si hay gasto real, se lista aparte.
+- **Copiar el mes anterior** es una acción explícita (`?/copyPrevious`) que solo
+  aplica al mes actual, nunca modifica el mes origen, no crea movimientos reales y
+  pide confirmación (o falla con `409`) si el destino ya tiene líneas. Copia las
+  líneas con sus importes y conserva el estado oculto (no reactiva nada).
+- La pantalla lista por defecto **todas** las categorías visibles de gasto cuando
+  aún no hay presupuesto guardado. Cada categoría es expandible a sus
+  **subcategorías** (con un chevron). El usuario asigna monto a la categoría
   ("General") o a subcategorías, borra categorías, re-agrega del catálogo o
-  **crea categorías personalizadas** con nombre propio. Una vez guardado,
-  `budget.lines` es la fuente de verdad de qué categorías están en la lista.
-- Forma de cada línea del catálogo:
-  `{ categoryId, subcategoryKey: string|null, plannedCents }`.
+  **crea categorías personalizadas**. Una vez guardado, `budget.lines` es la
+  fuente de verdad de qué categorías están en la lista.
+- **Categorías/subcategorías ocultas con línea guardada**: se conservan y se
+  muestran en una sección secundaria ("Categorías ocultas con presupuesto"), cuentan
+  en los totales y se pueden ajustar o quitar explícitamente. No se ofrecen para
+  **nuevas** asignaciones (el servidor rechaza agregar una oculta sin línea previa).
+  El gasto real de cualquier categoría —oculta o sin línea— **siempre cuenta**; lo
+  que no tiene línea aparece en "Gastos reales sin presupuesto" y no se le asigna
+  un límite ficticio.
+- Forma de cada línea:
+  `{ categoryId, subcategoryKey: string|null, plannedCents, categoryName, subcategoryName }`.
   `subcategoryKey: null` = monto general de la categoría; una subcategoría es una
   línea aparte. El formulario usa nombres `general|<categoryId>` y
   `sub|<categoryId>|<subcategoryKey>` y se parsea con `buildBudgetLinesFromForm`.
   Los borrados y añadidos son estado de cliente; se persisten al guardar (el
   formulario reemplaza todas las líneas, y siempre incluye un `general|` por
   categoría incluida aunque sea 0).
+- **Migración legacy**: el modelo anterior tenía un único presupuesto por usuario
+  (`{ userId }`). `migrateLegacyBudgets(userId, currentMonthKey)` lo asigna de forma
+  idempotente al mes contable actual **solo si no existe ya** un presupuesto de ese
+  mes; no inventa meses históricos. `ensureIndexes()` retira el índice único legacy
+  `{ userId }` y crea `{ userId, monthKey }`. Si hubiera documentos legacy
+  duplicados, se conservan con una clave no canónica (`legacy-<id>`) para no perder
+  información.
 - **Categorías personalizadas**: son **categorías reales** (ver sección
   siguiente), no etiquetas solo de presupuesto. Se crean desde el presupuesto o
   desde Ajustes → Categorías y se comportan como cualquier otra: aparecen en
   Registrar, Escanear y Movimientos, y reciben gasto real.
 - Lógica pura en `src/lib/utils/budget-math.js` (`sumPlannedCents`,
-  `plannedCentsByCategory`, `plannedCategoryCount`, `buildBudgetLinesFromForm`,
-  `remainingFromIncome`, `budgetUsedPct`, ...).
+  `budgetHasPlanned`, `cloneBudgetLines`, `plannedCentsByCategory`,
+  `plannedCategoryCount`, `buildBudgetLinesFromForm`, `remainingFromIncome`,
+  `budgetUsedPct`, ...).
 - Gasto real por subcategoría: `getSpendingByCategorySubcategory` en
   `src/lib/server/analytics/spending-by-subcategory.js`. La comparación contra lo
   real se arma en `presupuesto/+page.server.js` (por categoría con
   `getSpendingByCategory` y por subcategoría con la anterior).
+- **Simulador de mes (solo dev)**: `?previewMonth=YYYY-MM` en Inicio y
+  Presupuesto hace que esas pantallas traten ese mes como el actual. El mes
+  simulado es de **solo lectura** (`isCurrentMonth` se fuerza a `false`) y no se
+  ejecutan migraciones ni escrituras. En producción el parámetro se ignora. No
+  cambia el reloj ni los datos; la captura sigue usando la fecha real.
 
 ## Tests
 
@@ -257,6 +313,10 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
   con `await t.test(...)` por caso.
 - Al agregar un archivo de test, **actualiza el script `test`** en `package.json`.
   Ejecuta `pnpm test` antes de dar por terminado un cambio.
+- Cobertura relevante del presupuesto: `tests/budget.test.js` (matemática pura),
+  `tests/budget-periods.test.js` (claves de mes, `cloneBudgetLines`,
+  `budgetHasPlanned`) y `tests/catalog-usage.test.js` (referencias de
+  movimiento/ítem/presupuesto y borrado del padre con subcategorías hijas).
 
 ## Lint y formato
 

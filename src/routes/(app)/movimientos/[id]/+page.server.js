@@ -1,6 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import { getMovementById, updateMovement, deleteMovement } from '$lib/server/repos/movements.js';
-import { getVisibleCategories } from '$lib/server/repos/categories.js';
+import { getCategoriesByUser } from '$lib/server/repos/categories.js';
 import { buildCatalogForUser } from '$lib/server/repos/custom-catalog.js';
 import { ObjectId } from 'mongodb';
 import { buildCategoryKeyByIdMap, categoryKeyOfDoc } from '$lib/server/defaults/categories.js';
@@ -11,7 +11,9 @@ export const load = async (event) => {
 
 	const [movement, categories] = await Promise.all([
 		getMovementById(userId, id),
-		getVisibleCategories(userId)
+		// Incluye categorías ocultas: el detalle histórico conserva su nombre y
+		// permite editar sin perder la clasificación original.
+		getCategoriesByUser(userId)
 	]);
 
 	if (!movement) {
@@ -23,8 +25,9 @@ export const load = async (event) => {
 		categoryMap.set(c._id.toString(), c.name);
 	}
 
-	// Subcategorías fijas + personalizadas: también resuelve sus etiquetas.
-	const catalog = await buildCatalogForUser(userId, categories);
+	// Subcategorías fijas + personalizadas: también resuelve sus etiquetas
+	// (incluidas las ocultas, para no perder el nombre histórico).
+	const catalog = await buildCatalogForUser(userId, categories, { includeHidden: true });
 	const labelFor = (key) => (key ? (catalog.labelByKey.get(key) ?? 'Pendiente de revisión') : '');
 
 	const serializedItems = (movement.items || []).map((item, index) => {
@@ -62,13 +65,15 @@ export const load = async (event) => {
 			name: c.name,
 			categoryKey: categoryKeyOfDoc(c),
 			parentId: c.parentId ? c.parentId.toString() : null,
-			isCustom: !!c.isCustom
+			isCustom: !!c.isCustom,
+			isHidden: !!c.isHidden
 		})),
 		subcategories: catalog.subs.map((s) => ({
 			key: s.key,
 			name: s.name,
 			categoryId: s.categoryId,
-			isCustom: !!s.isCustom
+			isCustom: !!s.isCustom,
+			isHidden: !!s.isHidden
 		}))
 	};
 };
@@ -91,9 +96,11 @@ export const actions = {
 		}
 
 		// Categorías del usuario para derivar la principal desde la subcategoría.
-		const categories = await getVisibleCategories(userId);
+		// Incluye ocultas para respetar la clasificación de un movimiento ya
+		// registrado al editarlo.
+		const categories = await getCategoriesByUser(userId);
 		const categoryKeyById = buildCategoryKeyByIdMap(categories);
-		const catalog = await buildCatalogForUser(userId, categories);
+		const catalog = await buildCatalogForUser(userId, categories, { includeHidden: true });
 
 		/**
 		 * Resuelve categoría/subcategoría a partir de una key (fija o personalizada).

@@ -10,8 +10,8 @@
 /**
  * @typedef {{ id: string, categoryKey?: string|null }} CategoryLike
  * @typedef {{ key: string, name: string, categoryKey?: string|null }} StaticSubcategory
- * @typedef {{ id?: string, key: string, name: string, categoryId: string }} CustomSubcategory
- * @typedef {{ key: string, name: string, categoryId: string, isCustom: boolean, id?: string }} MergedSubcategory
+ * @typedef {{ id?: string, key: string, name: string, categoryId: string, isHidden?: boolean }} CustomSubcategory
+ * @typedef {{ key: string, name: string, categoryId: string, isCustom: boolean, isHidden: boolean, id?: string }} MergedSubcategory
  */
 
 /**
@@ -41,7 +41,8 @@ export function groupSubcategories(categories, staticSubs, customSubs) {
 			key: s.key,
 			name: s.name,
 			categoryId,
-			isCustom: false
+			isCustom: false,
+			isHidden: false
 		});
 	}
 
@@ -52,6 +53,7 @@ export function groupSubcategories(categories, staticSubs, customSubs) {
 			name: s.name,
 			categoryId: s.categoryId,
 			isCustom: true,
+			isHidden: !!s.isHidden,
 			id: s.id
 		});
 	}

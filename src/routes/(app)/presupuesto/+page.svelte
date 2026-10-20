@@ -5,46 +5,96 @@
 
 	let { data, form } = $props();
 
-	let income = $state(data.incomePesos);
-	let lines = $state(
-		data.lines.map((l) => ({
-			key: l.key,
-			categoryId: l.categoryId,
-			name: l.name,
-			isCustom: !!l.isCustom,
-			general: l.plannedPesos,
-			spentCents: l.spentCents,
-			generalSpentCents: l.generalSpentCents,
-			expanded: false,
+	/** @param {any} line */
+	function mapLine(line) {
+		return {
+			key: line.key,
+			categoryId: line.categoryId,
+			name: line.name,
+			categoryKey: line.categoryKey,
+			isCustom: !!line.isCustom,
+			isHidden: !!line.isHidden,
+			isMissing: !!line.isMissing,
+			hasReferences: !!line.hasReferences,
+			hasSpending: !!line.hasSpending,
+			isStored: !!line.isStored,
+			generalStored: !!line.generalStored,
+			generalCanEdit: !!line.generalCanEdit,
+			general: line.plannedPesos,
+			spentCents: line.spentCents,
+			generalSpentCents: line.generalSpentCents,
+			totalPlannedCents: line.totalPlannedCents,
+			expanded: !!line.isHidden,
 			newSubName: '',
-			subcategories: (l.subcategories ?? []).map((s) => ({
-				id: s.id ?? null,
-				key: s.key,
-				name: s.name,
-				isCustom: !!s.isCustom,
-				amount: s.plannedPesos,
-				spentCents: s.spentCents
+			subcategories: (line.subcategories ?? []).map((sub) => ({
+				id: sub.id ?? null,
+				key: sub.key,
+				name: sub.name,
+				isCustom: !!sub.isCustom,
+				isHidden: !!sub.isHidden,
+				isMissing: !!sub.isMissing,
+				hasReferences: !!sub.hasReferences,
+				canEdit: !!sub.canEdit,
+				isStored: !!sub.isStored,
+				amount: sub.plannedPesos,
+				plannedCents: sub.plannedCents,
+				spentCents: sub.spentCents
 			}))
-		}))
-	);
+		};
+	}
 
+	/** @param {any[]} list */
+	function sortLines(list) {
+		// Orden estable: visibles primero, ocultas al final.
+		return [...list].sort((a, b) => {
+			if (a.isHidden !== b.isHidden) return a.isHidden ? 1 : -1;
+			return 0;
+		});
+	}
+
+	let income = $state(data.incomePesos);
+	let lines = $state(sortLines(data.lines.map(mapLine)));
 	let pickerOpen = $state(false);
 	let newName = $state('');
 	let saving = $state(false);
+	let copying = $state(false);
+	let lastMonthKey = data.monthKey;
+
+	$effect(() => {
+		if (data.monthKey !== lastMonthKey) {
+			lastMonthKey = data.monthKey;
+			lines = sortLines(data.lines.map(mapLine));
+			income = data.incomePesos;
+			pickerOpen = false;
+			newName = '';
+			saving = false;
+			copying = false;
+		}
+	});
 
 	let available = $derived(
-		data.categories.filter((c) => !lines.some((l) => l.categoryId === c.id))
+		data.categories.filter((cat) => !lines.some((line) => line.categoryId === cat.id))
 	);
+	let customCategories = $derived(data.categories.filter((cat) => cat.isCustom));
+	let firstHiddenIndex = $derived(lines.findIndex((line) => line.isHidden));
 
 	function toCents(value) {
 		return parseAmountToCents(String(value ?? '')) ?? 0;
 	}
 
+	/** @param {any} line */
 	function catPlanned(line) {
-		return toCents(line.general) + line.subcategories.reduce((t, s) => t + toCents(s.amount), 0);
+		return (
+			toCents(line.general) +
+			line.subcategories.reduce((total, sub) => total + toCents(sub.amount), 0)
+		);
 	}
 
-	let plannedCents = $derived(lines.reduce((total, l) => total + catPlanned(l), 0));
+	let plannedCents = $derived(lines.reduce((total, line) => total + catPlanned(line), 0));
+	let summaryPlanned = $derived(data.isCurrentMonth ? plannedCents : data.plannedCents);
+	let summaryDifference = $derived(
+		data.isCurrentMonth ? plannedCents - data.spentCents : data.differenceCents
+	);
 	let incomeCents = $derived(
 		income === '' || income === null || income === undefined
 			? null
@@ -53,84 +103,127 @@
 	let remaining = $derived(remainingFromIncome(incomeCents, plannedCents));
 	let usedPct = $derived(budgetUsedPct(plannedCents, incomeCents));
 
+	/** @param {any} line */
 	function toggle(line) {
 		line.expanded = !line.expanded;
 	}
 
+	/** @param {string} key */
 	function removeCategory(key) {
-		lines = lines.filter((l) => l.key !== key);
+		lines = lines.filter((line) => line.key !== key);
 	}
 
+	/** @param {any} cat */
 	function addCategory(cat) {
-		if (lines.some((l) => l.categoryId === cat.id)) return;
-		lines = [
+		if (lines.some((line) => line.categoryId === cat.id)) return;
+		lines = sortLines([
 			...lines,
 			{
 				key: cat.id,
 				categoryId: cat.id,
 				name: cat.name,
+				categoryKey: cat.categoryKey,
 				isCustom: !!cat.isCustom,
+				isHidden: false,
+				isMissing: false,
+				hasReferences: !!cat.hasReferences,
+				hasSpending: false,
+				isStored: false,
+				generalStored: false,
+				generalCanEdit: true,
 				general: '',
-				spentCents: 0,
-				generalSpentCents: 0,
+				spentCents: cat.spentCents ?? 0,
+				generalSpentCents: cat.generalSpentCents ?? 0,
+				totalPlannedCents: 0,
 				expanded: true,
 				newSubName: '',
-				subcategories: (cat.subcategories ?? []).map((s) => ({
-					id: s.id ?? null,
-					key: s.key,
-					name: s.name,
-					isCustom: !!s.isCustom,
+				subcategories: (cat.subcategories ?? []).map((sub) => ({
+					id: sub.id ?? null,
+					key: sub.key,
+					name: sub.name,
+					isCustom: !!sub.isCustom,
+					isHidden: false,
+					isMissing: false,
+					hasReferences: !!sub.hasReferences,
+					canEdit: true,
+					isStored: false,
 					amount: '',
-					spentCents: 0
+					plannedCents: 0,
+					spentCents: sub.spentCents ?? 0
 				}))
 			}
-		];
+		]);
 		pickerOpen = false;
 	}
 
-	// Al crear una categoría real en el servidor, la agregamos al presupuesto.
 	async function createCategoryEnhance({ result, update }) {
 		await update();
 		if (result.type === 'success') {
 			const newId = result.data?.createdCategoryId;
-			const cat = newId ? data.categories.find((c) => c.id === newId) : null;
+			const cat = newId ? data.categories.find((candidate) => candidate.id === newId) : null;
 			if (cat) addCategory(cat);
 			newName = '';
 		}
 	}
 
-	// Categorías personalizadas del usuario (para poder borrarlas).
-	let customCategories = $derived(data.categories.filter((c) => c.isCustom));
-
-	// Al borrar una categoría/subcategoría personalizada, limpiamos el estado
-	// local para no dejar líneas huérfanas.
 	async function deleteCustomEnhance({ result, update }) {
 		await update();
 		if (result.type === 'success') {
 			const id = result.data?.deletedId;
 			if (id) {
-				lines = lines
-					.filter((l) => l.categoryId !== id)
-					.map((l) => ({ ...l, subcategories: l.subcategories.filter((s) => s.id !== id) }));
+				lines = sortLines(
+					lines
+						.filter((line) => line.categoryId !== id)
+						.map((line) => ({
+							...line,
+							subcategories: line.subcategories.filter((sub) => sub.id !== id)
+						}))
+				);
 			}
 		}
 	}
 
-	function confirmDelete(name) {
-		return window.confirm(
-			`¿Eliminar "${name}"? Los movimientos que la usaban pasarán a "Sin clasificar".`
+	// Ocultar NO elimina la línea del presupuesto: la conserva y la mueve a la
+	// sección de categorías ocultas. Tampoco borra movimientos ni importes.
+	async function hideCustomEnhance({ result, update }) {
+		await update();
+		if (result.type !== 'success') return;
+		const id = result.data?.hiddenId;
+		if (!id) return;
+
+		lines = sortLines(
+			lines.map((line) => {
+				if (line.categoryId === id) {
+					return {
+						...line,
+						isHidden: true,
+						hasReferences: true,
+						generalCanEdit: line.generalStored,
+						subcategories: line.subcategories
+							.filter((sub) => sub.isStored || sub.spentCents > 0)
+							.map((sub) => ({ ...sub, canEdit: sub.isStored }))
+					};
+				}
+				return {
+					...line,
+					subcategories: line.subcategories.map((sub) =>
+						sub.id === id
+							? { ...sub, isHidden: true, hasReferences: true, canEdit: sub.isStored }
+							: sub
+					)
+				};
+			})
 		);
 	}
 
-	// Al crear una subcategoría personalizada, la agregamos a su categoría.
 	async function createSubEnhance({ result, update }) {
 		await update();
 		if (result.type === 'success') {
 			const sub = result.data?.createdSubcategory;
 			if (sub) {
-				const line = lines.find((l) => l.categoryId === sub.categoryId);
+				const line = lines.find((candidate) => candidate.categoryId === sub.categoryId);
 				if (line) {
-					if (!line.subcategories.some((s) => s.key === sub.key)) {
+					if (!line.subcategories.some((candidate) => candidate.key === sub.key)) {
 						line.subcategories = [
 							...line.subcategories,
 							{
@@ -138,7 +231,13 @@
 								key: sub.key,
 								name: sub.name,
 								isCustom: true,
+								isHidden: false,
+								isMissing: false,
+								hasReferences: false,
+								canEdit: true,
+								isStored: false,
 								amount: '',
+								plannedCents: 0,
 								spentCents: 0
 							}
 						];
@@ -147,6 +246,41 @@
 				}
 			}
 		}
+	}
+
+	async function copyPreviousEnhance({ result, update }) {
+		await update();
+		copying = false;
+		if (result.type === 'success') {
+			lines = sortLines(data.lines.map(mapLine));
+			pickerOpen = false;
+		}
+	}
+
+	/** @param {string} name */
+	function confirmDelete(name) {
+		return window.confirm(
+			`¿Eliminar "${name}"? Solo es posible si nunca tuvo movimientos ni presupuesto guardado. Si tiene referencias, usa Ocultar.`
+		);
+	}
+
+	// Para categorías/subcategorías con referencias se ofrece Ocultar; sin
+	// referencias se permite el borrado definitivo.
+	/** @param {any} item */
+	function canDelete(item) {
+		return !item.hasReferences;
+	}
+
+	/** @param {string} monthKey */
+	function goToMonth(monthKey) {
+		if (typeof window === 'undefined') return;
+		const url = new URL(window.location.href);
+		url.searchParams.set('month', monthKey);
+		// En modo prueba se conserva el mes simulado al navegar por el historial.
+		if (data.preview?.mode && data.preview.monthKey) {
+			url.searchParams.set('previewMonth', data.preview.monthKey);
+		}
+		window.location.assign(url.toString());
 	}
 </script>
 
@@ -158,10 +292,70 @@
 	<header class="header">
 		<h1 class="page-title">Presupuesto</h1>
 		<p class="subtitle">
-			Asigna cuánto piensas gastar al mes. Toca una categoría para detallar por subcategoría. Son
-			gastos <strong>planeados</strong>, distintos de los gastos reales.
+			Planea cuánto piensas gastar cada mes y compáralo con el gasto real. Los meses anteriores
+			quedan en solo lectura.
 		</p>
 	</header>
+
+	{#if data.preview?.mode}
+		<div class="preview-banner card">
+			<p class="preview-banner-title">Modo prueba (solo dev) · viendo {data.monthLabel}</p>
+			<p class="preview-banner-desc">
+				Solo lectura: no se guardan ni copian presupuestos. El mes real no se modifica.
+			</p>
+			<div class="preview-banner-actions">
+				<form method="get" action="/presupuesto">
+					<input type="hidden" name="previewMonth" value={data.preview.nextMonthKey} />
+					<button type="submit" class="btn-secondary">Avanzar otro mes</button>
+				</form>
+				<form method="get" action="/presupuesto">
+					<button type="submit" class="btn-secondary">Volver al mes real</button>
+				</form>
+			</div>
+		</div>
+	{/if}
+
+	<!-- Navegación mensual -->
+	<div class="month-nav card">
+		{#if data.canGoPrev}
+			<button
+				type="button"
+				class="month-arrow"
+				onclick={() => goToMonth(data.prevMonthKey)}
+				aria-label="Mes anterior">‹</button
+			>
+		{:else}
+			<span class="month-arrow disabled" aria-hidden="true">‹</span>
+		{/if}
+
+		<div class="month-center">
+			<select
+				class="month-select"
+				aria-label="Mes del presupuesto"
+				onchange={(event) => goToMonth(event.currentTarget.value)}
+			>
+				{#each data.monthOptions as option (option.key)}
+					<option value={option.key} selected={option.key === data.monthKey}>
+						{option.label}
+					</option>
+				{/each}
+			</select>
+			{#if !data.isCurrentMonth}
+				<span class="readonly-badge">Solo lectura</span>
+			{/if}
+		</div>
+
+		{#if data.canGoNext}
+			<button
+				type="button"
+				class="month-arrow"
+				onclick={() => goToMonth(data.nextMonthKey)}
+				aria-label="Mes siguiente">›</button
+			>
+		{:else}
+			<span class="month-arrow disabled" aria-hidden="true">›</span>
+		{/if}
+	</div>
 
 	{#if form?.error}
 		<div class="error-banner card">
@@ -173,19 +367,15 @@
 		<div class="success-banner card">Presupuesto guardado correctamente</div>
 	{/if}
 
-	<form
-		method="post"
-		action="?/save"
-		use:enhance={() => {
-			saving = true;
-			return async ({ update }) => {
-				saving = false;
-				await update();
-			};
-		}}
-	>
-		<!-- Resumen: ingreso, planeado y disponible -->
-		<div class="summary-card card">
+	{#if form?.copiedPrevious}
+		<div class="success-banner card">
+			Se copiaron {form.copiedCount} líneas del presupuesto anterior.
+		</div>
+	{/if}
+
+	<!-- Resumen: planeado, real y diferencia -->
+	<div class="summary-card card">
+		{#if data.isCurrentMonth}
 			<div class="income-field">
 				<label for="monthlyIncome" class="field-label">Ingreso mensual ($ MXN)</label>
 				<input
@@ -193,51 +383,502 @@
 					inputmode="decimal"
 					id="monthlyIncome"
 					name="monthlyIncome"
+					form="budgetForm"
 					bind:value={income}
 					placeholder="Ej. 18000"
 					class="input-field"
 				/>
 			</div>
+		{/if}
 
-			<div class="summary-grid">
-				<div class="summary-item">
-					<span class="summary-label">Planeado</span>
-					<span class="summary-value planned">{formatMoney(plannedCents)}</span>
-				</div>
-				<div class="summary-item">
-					<span class="summary-label">Te quedaría</span>
-					{#if remaining === null}
-						<span class="summary-value muted">—</span>
-					{:else}
-						<span
-							class="summary-value"
-							class:positive={remaining >= 0}
-							class:negative={remaining < 0}
-						>
-							{formatMoney(remaining)}
-						</span>
-					{/if}
-				</div>
+		<div class="summary-grid three">
+			<div class="summary-item">
+				<span class="summary-label">Planeado</span>
+				<span class="summary-value planned">{formatMoney(summaryPlanned)}</span>
 			</div>
+			<div class="summary-item">
+				<span class="summary-label">Gasto real</span>
+				<span class="summary-value">{formatMoney(data.spentCents)}</span>
+			</div>
+			<div class="summary-item">
+				<span class="summary-label">Diferencia</span>
+				<span
+					class="summary-value"
+					class:positive={summaryDifference >= 0}
+					class:negative={summaryDifference < 0}
+				>
+					{formatMoney(summaryDifference)}
+				</span>
+			</div>
+		</div>
 
-			{#if usedPct !== null}
-				<div class="progress-track">
-					<div
-						class="progress-bar"
-						class:over={usedPct > 100}
-						style="width: {Math.min(usedPct, 100)}%;"
-					></div>
+		{#if data.isCurrentMonth}
+			{#if remaining !== null}
+				<div class="income-line">
+					<span>Te quedaría del ingreso</span>
+					<strong class:positive={remaining >= 0} class:negative={remaining < 0}>
+						{formatMoney(remaining)}
+					</strong>
 				</div>
-				<p class="summary-hint">{usedPct}% de tu ingreso está planeado</p>
+				{#if usedPct !== null}
+					<div class="progress-track">
+						<div
+							class="progress-bar"
+							class:over={usedPct > 100}
+							style="width: {Math.min(usedPct, 100)}%;"
+						></div>
+					</div>
+					<p class="summary-hint">{usedPct}% de tu ingreso está planeado</p>
+				{/if}
 			{:else}
 				<p class="summary-hint">
 					Escribe tu ingreso mensual para ver cuánto te quedaría disponible.
 				</p>
 			{/if}
-		</div>
+		{:else}
+			<p class="summary-hint">
+				Consulta histórica: se conservan los importes y la clasificación aunque las categorías estén
+				ocultas.
+			</p>
+		{/if}
 
-		<!-- Categorías (expandibles a subcategorías) -->
-		{#if lines.length === 0}
+		{#if data.unbudgetedCents > 0}
+			<p class="summary-hint unbudgeted-hint">
+				Incluye {formatMoney(data.unbudgetedCents)} de gasto real sin presupuesto asignado.
+			</p>
+		{/if}
+	</div>
+
+	{#if data.isCurrentMonth}
+		{#if !data.hasStoredBudget}
+			<div class="draft-hint card">
+				Aún no has guardado un presupuesto para este mes. Asigna montos y guarda para iniciar el
+				historial mensual.
+			</div>
+		{/if}
+
+		<!-- Copiar el presupuesto del mes anterior -->
+		<form
+			method="post"
+			action="?/copyPrevious"
+			class="copy-form"
+			use:enhance={({ cancel }) => {
+				if (data.hasBudgetLines) {
+					const ok = window.confirm(
+						'Ya existe un presupuesto para este mes. ¿Quieres reemplazarlo con el presupuesto del mes anterior?'
+					);
+					if (!ok) {
+						cancel();
+						return;
+					}
+				}
+				copying = true;
+				return copyPreviousEnhance;
+			}}
+		>
+			<input type="hidden" name="month" value={data.monthKey} />
+			<input type="hidden" name="confirm" value={data.hasBudgetLines ? 'true' : 'false'} />
+			<button
+				type="submit"
+				class="btn-secondary w-full"
+				disabled={!data.prevMonthHasBudget || copying}
+			>
+				{copying ? 'Copiando…' : `Copiar presupuesto de ${data.prevMonthLabel}`}
+			</button>
+			{#if !data.prevMonthHasBudget}
+				<p class="copy-hint">El mes anterior no tiene un presupuesto guardado.</p>
+			{/if}
+		</form>
+
+		<form
+			id="budgetForm"
+			method="post"
+			action="?/save"
+			use:enhance={() => {
+				saving = true;
+				return async ({ update }) => {
+					saving = false;
+					await update();
+				};
+			}}
+		>
+			<input type="hidden" name="month" value={data.monthKey} />
+
+			{#if lines.length === 0}
+				<div class="empty-state card">
+					<div class="empty-icon-circle">
+						<svg
+							width="28"
+							height="28"
+							viewBox="0 0 24 24"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="1.8"
+						>
+							<path d="M3 3v18h18" />
+							<path d="M7 14l4-4 3 3 5-6" />
+						</svg>
+					</div>
+					<h3 class="empty-heading">No tienes categorías en el presupuesto</h3>
+					<p class="empty-desc">
+						Usa “Añadir categoría” para crear una nueva o volver a incluir las que quieras
+						presupuestar este mes.
+					</p>
+				</div>
+			{:else}
+				<div class="cat-list">
+					{#each lines as line, index (line.key)}
+						{#if line.isHidden && index === firstHiddenIndex}
+							<div class="hidden-divider">
+								<h2 class="section-title">Categorías ocultas con presupuesto</h2>
+								<p class="section-desc">
+									Conservan su importe y participan en los totales. No se ofrecen para nuevas
+									asignaciones; puedes mostrarlas de nuevo desde Ajustes → Categorías.
+								</p>
+							</div>
+						{/if}
+
+						<div
+							class="cat-block card"
+							class:hidden-line={line.isHidden}
+							class:missing-line={line.isMissing}
+						>
+							<div class="cat-head">
+								{#if line.subcategories.length > 0}
+									<button
+										type="button"
+										class="cat-toggle"
+										onclick={() => toggle(line)}
+										aria-expanded={line.expanded}
+									>
+										<span class="chevron" class:open={line.expanded}>›</span>
+										<span class="cat-name">{line.name}</span>
+									</button>
+								{:else}
+									<span class="cat-name" class:custom={line.isCustom}>{line.name}</span>
+								{/if}
+
+								<div class="cat-head-right">
+									{#if line.subcategories.length > 0}
+										<span class="cat-total">{formatMoney(catPlanned(line))}</span>
+									{:else if line.generalCanEdit}
+										<div class="line-inputs">
+											<span class="currency-prefix">$</span>
+											<input
+												type="text"
+												inputmode="decimal"
+												name="general|{line.categoryId}"
+												bind:value={line.general}
+												placeholder="0"
+												class="amount-input"
+												aria-label="Monto de {line.name}"
+											/>
+										</div>
+									{:else}
+										<span class="cat-total">
+											{line.plannedCents > 0 ? formatMoney(line.plannedCents) : '—'}
+										</span>
+									{/if}
+									{#if !line.isMissing}
+										<button
+											type="button"
+											class="remove-btn"
+											onclick={() => removeCategory(line.key)}
+											aria-label="Quitar {line.name} del presupuesto"
+										>
+											✕
+										</button>
+									{/if}
+								</div>
+							</div>
+
+							<div class="cat-meta">
+								<span class="cat-real">Real este mes: {formatMoney(line.spentCents)}</span>
+								<span class="meta-tags">
+									{#if line.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+									{#if line.isHidden}<span class="hidden-tag">Oculta</span>{/if}
+									{#if line.isMissing}<span class="hidden-tag">No disponible</span>{/if}
+									{#if catPlanned(line) > 0 && line.spentCents > 0}
+										{#if catPlanned(line) - line.spentCents >= 0}
+											<span class="diff ok">
+												Disponible: {formatMoney(catPlanned(line) - line.spentCents)}
+											</span>
+										{:else}
+											<span class="diff over">
+												Excedido: {formatMoney(line.spentCents - catPlanned(line))}
+											</span>
+										{/if}
+									{:else if catPlanned(line) === 0 && line.spentCents > 0}
+										<span class="diff over">Sin presupuesto asignado</span>
+									{/if}
+								</span>
+							</div>
+
+							{#if line.subcategories.length > 0}
+								{#if catPlanned(line) > 0}
+									<div class="cat-track">
+										<div
+											class="cat-bar"
+											class:over={lineProgressPct(line.spentCents, catPlanned(line)) > 100}
+											style="width: {Math.min(
+												lineProgressPct(line.spentCents, catPlanned(line)),
+												100
+											)}%;"
+										></div>
+									</div>
+								{/if}
+
+								<div class="subs" class:collapsed={!line.expanded}>
+									<div class="sub-row general">
+										<div class="sub-label">
+											<span class="sub-name">General (sin subcategoría)</span>
+											<span class="sub-real">Real: {formatMoney(line.generalSpentCents)}</span>
+										</div>
+										{#if line.generalCanEdit}
+											<div class="line-inputs">
+												<span class="currency-prefix">$</span>
+												<input
+													type="text"
+													inputmode="decimal"
+													name="general|{line.categoryId}"
+													bind:value={line.general}
+													placeholder="0"
+													class="amount-input"
+													aria-label="Monto general de {line.name}"
+												/>
+											</div>
+										{:else}
+											<span class="sub-amount">
+												{line.plannedCents > 0 ? formatMoney(line.plannedCents) : '—'}
+											</span>
+										{/if}
+									</div>
+
+									{#each line.subcategories as sub (sub.key)}
+										<div class="sub-row" class:sub-hidden={sub.isHidden}>
+											<div class="sub-label">
+												<span class="sub-name">
+													{sub.name}
+													{#if sub.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+													{#if sub.isHidden}<span class="hidden-tag">Oculta</span>{/if}
+													{#if sub.isMissing}<span class="hidden-tag">No disponible</span>{/if}
+												</span>
+												<span class="sub-real">Real: {formatMoney(sub.spentCents)}</span>
+											</div>
+
+											{#if sub.canEdit}
+												<div class="line-inputs">
+													<span class="currency-prefix">$</span>
+													<input
+														type="text"
+														inputmode="decimal"
+														name="sub|{line.categoryId}|{sub.key}"
+														bind:value={sub.amount}
+														placeholder="0"
+														class="amount-input"
+														aria-label="Monto de {sub.name}"
+													/>
+													{#if sub.isCustom && !sub.isHidden}
+														{#if canDelete(sub)}
+															<button
+																type="submit"
+																form="deleteCustomForm"
+																name="id"
+																value={sub.id}
+																class="icon-delete"
+																title="Eliminar subcategoría"
+																aria-label="Eliminar subcategoría {sub.name}"
+																onclick={(event) => {
+																	if (!confirmDelete(sub.name)) event.preventDefault();
+																}}
+															>
+																✕
+															</button>
+														{:else}
+															<button
+																type="submit"
+																form="hideCustomForm"
+																name="id"
+																value={sub.id}
+																class="hide-link"
+																title="Ocultar subcategoría: tiene movimientos o presupuesto guardado"
+															>
+																Ocultar
+															</button>
+														{/if}
+													{/if}
+												</div>
+											{:else}
+												<span class="sub-amount">
+													{sub.plannedCents > 0 ? formatMoney(sub.plannedCents) : '—'}
+												</span>
+											{/if}
+										</div>
+									{/each}
+
+									{#if !line.isHidden && !line.isMissing}
+										<div class="sub-row add-sub-row">
+											<input
+												type="text"
+												name="name"
+												form="createSubForm-{line.categoryId}"
+												bind:value={line.newSubName}
+												placeholder="Nueva subcategoría…"
+												class="sub-new-input input-field"
+												maxlength="60"
+												aria-label="Nueva subcategoría para {line.name}"
+											/>
+											<button
+												type="submit"
+												form="createSubForm-{line.categoryId}"
+												class="add-sub-btn"
+												disabled={line.newSubName.trim() === ''}
+											>
+												Agregar
+											</button>
+										</div>
+									{/if}
+								</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+
+			<!-- Añadir categoría -->
+			<div class="add-section">
+				<button
+					type="button"
+					class="btn-secondary w-full"
+					onclick={() => (pickerOpen = !pickerOpen)}
+					aria-expanded={pickerOpen}
+				>
+					+ Añadir categoría
+				</button>
+
+				{#if pickerOpen}
+					<div class="add-panel card">
+						<p class="panel-label">Crear una categoría nueva</p>
+						<div class="new-cat-row">
+							<input
+								type="text"
+								name="name"
+								form="createCategoryForm"
+								bind:value={newName}
+								placeholder="Ej. Renta, Colegiatura…"
+								class="input-field"
+								maxlength="60"
+								aria-label="Nombre de la categoría nueva"
+							/>
+							<button
+								type="submit"
+								form="createCategoryForm"
+								class="create-btn btn-primary"
+								disabled={newName.trim() === ''}
+							>
+								Crear
+							</button>
+						</div>
+
+						{#if available.length > 0}
+							<p class="panel-label picker-heading">O vuelve a agregar del catálogo</p>
+							<div class="picker">
+								{#each available as cat (cat.id)}
+									<button type="button" class="picker-item" onclick={() => addCategory(cat)}>
+										{cat.name}
+									</button>
+								{/each}
+							</div>
+						{/if}
+
+						{#if customCategories.length > 0}
+							<p class="panel-label picker-heading">Tus categorías personalizadas</p>
+							<div class="picker">
+								{#each customCategories as cat (cat.id)}
+									<div class="custom-manage">
+										<span class="custom-manage-name">{cat.name}</span>
+										{#if canDelete(cat)}
+											<button
+												type="submit"
+												form="deleteCustomForm"
+												name="id"
+												value={cat.id}
+												class="icon-delete"
+												title="Eliminar categoría"
+												aria-label="Eliminar categoría {cat.name}"
+												onclick={(event) => {
+													if (!confirmDelete(cat.name)) event.preventDefault();
+												}}
+											>
+												✕
+											</button>
+										{:else}
+											<button
+												type="submit"
+												form="hideCustomForm"
+												name="id"
+												value={cat.id}
+												class="hide-link"
+												title="Ocultar categoría: tiene movimientos o presupuesto guardado"
+											>
+												Ocultar
+											</button>
+										{/if}
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<button type="submit" class="save-btn btn-primary w-full" disabled={saving}>
+				{saving ? 'Guardando...' : 'Guardar presupuesto'}
+			</button>
+		</form>
+
+		<!-- Formulario aparte para crear categorías (asociado por el atributo `form`) -->
+		<form
+			id="createCategoryForm"
+			method="post"
+			action="?/createCategory"
+			use:enhance={() => createCategoryEnhance}
+		>
+			<input type="hidden" name="month" value={data.monthKey} />
+		</form>
+
+		<!-- Formulario aparte para borrar categorías/subcategorías personalizadas -->
+		<form
+			id="deleteCustomForm"
+			method="post"
+			action="?/deleteCustom"
+			use:enhance={() => deleteCustomEnhance}
+		></form>
+
+		<!-- Formulario aparte para ocultar categorías/subcategorías con referencias -->
+		<form
+			id="hideCustomForm"
+			method="post"
+			action="?/hideCustom"
+			use:enhance={() => hideCustomEnhance}
+		></form>
+
+		<!-- Un formulario por categoría para crear subcategorías personalizadas -->
+		{#each lines as line (line.key)}
+			{#if !line.isHidden && !line.isMissing}
+				<form
+					id="createSubForm-{line.categoryId}"
+					method="post"
+					action="?/createSubcategory"
+					use:enhance={() => createSubEnhance}
+				>
+					<input type="hidden" name="categoryId" value={line.categoryId} />
+				</form>
+			{/if}
+		{/each}
+	{:else}
+		<!-- Historial: solo lectura -->
+		{#if !data.hasStoredBudget}
 			<div class="empty-state card">
 				<div class="empty-icon-circle">
 					<svg
@@ -252,16 +893,37 @@
 						<path d="M7 14l4-4 3 3 5-6" />
 					</svg>
 				</div>
-				<h3 class="empty-heading">No tienes categorías en el presupuesto</h3>
+				<h3 class="empty-heading">Sin presupuesto guardado para este mes</h3>
 				<p class="empty-desc">
-					Usa “Añadir categoría” para crear una nueva o volver a incluir las que quieras
-					presupuestar este mes.
+					No hay un presupuesto mensual guardado. Abajo puedes consultar los gastos reales del
+					periodo; no se generan comparaciones presupuestarias inventadas.
+				</p>
+			</div>
+		{:else if lines.length === 0}
+			<div class="empty-state card">
+				<h3 class="empty-heading">El presupuesto de este mes no tiene líneas</h3>
+				<p class="empty-desc">
+					No se guardaron categorías para este periodo. El gasto real se muestra abajo.
 				</p>
 			</div>
 		{:else}
 			<div class="cat-list">
-				{#each lines as line (line.key)}
-					<div class="cat-block card">
+				{#each lines as line, index (line.key)}
+					{#if line.isHidden && index === firstHiddenIndex}
+						<div class="hidden-divider">
+							<h2 class="section-title">Categorías ocultas en este presupuesto</h2>
+							<p class="section-desc">
+								Se conservan con sus importes y participan en los totales, aunque hoy no se ofrezcan
+								para nuevos movimientos.
+							</p>
+						</div>
+					{/if}
+
+					<div
+						class="cat-block read-only card"
+						class:hidden-line={line.isHidden}
+						class:missing-line={line.isMissing}
+					>
 						<div class="cat-head">
 							{#if line.subcategories.length > 0}
 								<button
@@ -278,258 +940,109 @@
 							{/if}
 
 							<div class="cat-head-right">
-								{#if line.subcategories.length > 0}
-									<span class="cat-total">{formatMoney(catPlanned(line))}</span>
-								{:else}
-									<div class="line-inputs">
-										<span class="currency-prefix">$</span>
-										<input
-											type="text"
-											inputmode="decimal"
-											name="general|{line.categoryId}"
-											bind:value={line.general}
-											placeholder="0"
-											class="amount-input"
-											aria-label="Monto de {line.name}"
-										/>
-									</div>
-								{/if}
-								<button
-									type="button"
-									class="remove-btn"
-									onclick={() => removeCategory(line.key)}
-									aria-label="Quitar {line.name} del presupuesto"
-								>
-									✕
-								</button>
+								<span class="cat-total">
+									{line.totalPlannedCents > 0 ? formatMoney(line.totalPlannedCents) : '—'}
+								</span>
 							</div>
 						</div>
 
 						<div class="cat-meta">
 							<span class="cat-real">Real este mes: {formatMoney(line.spentCents)}</span>
-							{#if line.isCustom}
-								<span class="custom-tag">Personalizada</span>
-							{/if}
-							{#if catPlanned(line) > 0 && line.spentCents > 0}
-								{#if catPlanned(line) - line.spentCents >= 0}
-									<span class="diff ok">
-										Disponible: {formatMoney(catPlanned(line) - line.spentCents)}
-									</span>
-								{:else}
-									<span class="diff over">
-										Excedido: {formatMoney(line.spentCents - catPlanned(line))}
-									</span>
+							<span class="meta-tags">
+								{#if line.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+								{#if line.isHidden}<span class="hidden-tag">Oculta</span>{/if}
+								{#if line.isMissing}<span class="hidden-tag">No disponible</span>{/if}
+								{#if line.totalPlannedCents > 0 && line.spentCents > 0}
+									{#if line.totalPlannedCents - line.spentCents >= 0}
+										<span class="diff ok">
+											Disponible: {formatMoney(line.totalPlannedCents - line.spentCents)}
+										</span>
+									{:else}
+										<span class="diff over">
+											Excedido: {formatMoney(line.spentCents - line.totalPlannedCents)}
+										</span>
+									{/if}
+								{:else if line.totalPlannedCents === 0 && line.spentCents > 0}
+									<span class="diff over">Sin presupuesto asignado</span>
 								{/if}
-							{/if}
+							</span>
 						</div>
 
 						{#if line.subcategories.length > 0}
-							{#if catPlanned(line) > 0}
+							{#if line.totalPlannedCents > 0}
 								<div class="cat-track">
 									<div
 										class="cat-bar"
-										class:over={lineProgressPct(line.spentCents, catPlanned(line)) > 100}
+										class:over={lineProgressPct(line.spentCents, line.totalPlannedCents) > 100}
 										style="width: {Math.min(
-											lineProgressPct(line.spentCents, catPlanned(line)),
+											lineProgressPct(line.spentCents, line.totalPlannedCents),
 											100
 										)}%;"
 									></div>
 								</div>
 							{/if}
 
-							<div class="subs" class:collapsed={!line.expanded}>
+							<div class="subs static" class:collapsed={!line.expanded}>
 								<div class="sub-row general">
 									<div class="sub-label">
 										<span class="sub-name">General (sin subcategoría)</span>
 										<span class="sub-real">Real: {formatMoney(line.generalSpentCents)}</span>
 									</div>
-									<div class="line-inputs">
-										<span class="currency-prefix">$</span>
-										<input
-											type="text"
-											inputmode="decimal"
-											name="general|{line.categoryId}"
-											bind:value={line.general}
-											placeholder="0"
-											class="amount-input"
-											aria-label="Monto general de {line.name}"
-										/>
-									</div>
+									<span class="sub-amount">
+										{line.plannedCents > 0 ? formatMoney(line.plannedCents) : '—'}
+									</span>
 								</div>
 
 								{#each line.subcategories as sub (sub.key)}
-									<div class="sub-row">
+									<div class="sub-row" class:sub-hidden={sub.isHidden}>
 										<div class="sub-label">
 											<span class="sub-name">
 												{sub.name}
 												{#if sub.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+												{#if sub.isHidden}<span class="hidden-tag">Oculta</span>{/if}
+												{#if sub.isMissing}<span class="hidden-tag">No disponible</span>{/if}
 											</span>
 											<span class="sub-real">Real: {formatMoney(sub.spentCents)}</span>
 										</div>
-										<div class="line-inputs">
-											<span class="currency-prefix">$</span>
-											<input
-												type="text"
-												inputmode="decimal"
-												name="sub|{line.categoryId}|{sub.key}"
-												bind:value={sub.amount}
-												placeholder="0"
-												class="amount-input"
-												aria-label="Monto de {sub.name}"
-											/>
-											{#if sub.isCustom}
-												<button
-													type="submit"
-													form="deleteCustomForm"
-													name="id"
-													value={sub.id}
-													class="icon-delete"
-													title="Eliminar subcategoría"
-													aria-label="Eliminar subcategoría {sub.name}"
-													onclick={(e) => {
-														if (!confirmDelete(sub.name)) e.preventDefault();
-													}}
-												>
-													✕
-												</button>
-											{/if}
-										</div>
+										<span class="sub-amount">
+											{sub.plannedCents > 0 ? formatMoney(sub.plannedCents) : '—'}
+										</span>
 									</div>
 								{/each}
-
-								<div class="sub-row add-sub-row">
-									<input
-										type="text"
-										name="name"
-										form="createSubForm-{line.categoryId}"
-										bind:value={line.newSubName}
-										placeholder="Nueva subcategoría…"
-										class="sub-new-input input-field"
-										maxlength="60"
-										aria-label="Nueva subcategoría para {line.name}"
-									/>
-									<button
-										type="submit"
-										form="createSubForm-{line.categoryId}"
-										class="add-sub-btn"
-										disabled={line.newSubName.trim() === ''}
-									>
-										Agregar
-									</button>
-								</div>
 							</div>
 						{/if}
 					</div>
 				{/each}
 			</div>
 		{/if}
+	{/if}
 
-		<!-- Añadir categoría -->
-		<div class="add-section">
-			<button
-				type="button"
-				class="btn-secondary w-full"
-				onclick={() => (pickerOpen = !pickerOpen)}
-				aria-expanded={pickerOpen}
-			>
-				+ Añadir categoría
-			</button>
-
-			{#if pickerOpen}
-				<div class="add-panel card">
-					<p class="panel-label">Crear una categoría nueva</p>
-					<div class="new-cat-row">
-						<input
-							type="text"
-							name="name"
-							form="createCategoryForm"
-							bind:value={newName}
-							placeholder="Ej. Renta, Colegiatura…"
-							class="input-field"
-							maxlength="60"
-							aria-label="Nombre de la categoría nueva"
-						/>
-						<button
-							type="submit"
-							form="createCategoryForm"
-							class="create-btn btn-primary"
-							disabled={newName.trim() === ''}
-						>
-							Crear
-						</button>
+	<!-- Gasto real sin línea de presupuesto -->
+	{#if data.unbudgeted.length > 0}
+		<section class="unbudgeted card">
+			<h2 class="section-title">Gastos reales sin presupuesto</h2>
+			<p class="section-desc">
+				Cuentan en el gasto real del mes, pero no tienen una línea en el presupuesto. No se les
+				asigna un límite ficticio.
+			</p>
+			<div class="unbudgeted-list">
+				{#each data.unbudgeted as item (item.categoryId ?? 'null')}
+					<div class="unbudgeted-row">
+						<span class="unbudgeted-name">
+							{item.name}
+							{#if item.isCustom}<span class="custom-tag">Personalizada</span>{/if}
+							{#if item.isHidden}<span class="hidden-tag">Oculta</span>{/if}
+						</span>
+						<span class="unbudgeted-amount">{formatMoney(item.spentCents)}</span>
 					</div>
-
-					{#if available.length > 0}
-						<p class="panel-label picker-heading">O vuelve a agregar del catálogo</p>
-						<div class="picker">
-							{#each available as cat (cat.id)}
-								<button type="button" class="picker-item" onclick={() => addCategory(cat)}>
-									{cat.name}
-								</button>
-							{/each}
-						</div>
-					{/if}
-
-					{#if customCategories.length > 0}
-						<p class="panel-label picker-heading">Tus categorías personalizadas</p>
-						<div class="picker">
-							{#each customCategories as cat (cat.id)}
-								<div class="custom-manage">
-									<span class="custom-manage-name">{cat.name}</span>
-									<button
-										type="submit"
-										form="deleteCustomForm"
-										name="id"
-										value={cat.id}
-										class="icon-delete"
-										title="Eliminar categoría"
-										aria-label="Eliminar categoría {cat.name}"
-										onclick={(e) => {
-											if (!confirmDelete(cat.name)) e.preventDefault();
-										}}
-									>
-										✕
-									</button>
-								</div>
-							{/each}
-						</div>
-					{/if}
-				</div>
-			{/if}
-		</div>
-
-		<button type="submit" class="save-btn btn-primary w-full" disabled={saving}>
-			{saving ? 'Guardando...' : 'Guardar presupuesto'}
-		</button>
-	</form>
-
-	<!-- Formulario aparte para crear categorías (asociado por el atributo `form`) -->
-	<form
-		id="createCategoryForm"
-		method="post"
-		action="?/createCategory"
-		use:enhance={() => createCategoryEnhance}
-	></form>
-
-	<!-- Formulario aparte para borrar categorías/subcategorías personalizadas -->
-	<form
-		id="deleteCustomForm"
-		method="post"
-		action="?/deleteCustom"
-		use:enhance={() => deleteCustomEnhance}
-	></form>
-
-	<!-- Un formulario por categoría para crear subcategorías personalizadas -->
-	{#each lines as line (line.key)}
-		<form
-			id="createSubForm-{line.categoryId}"
-			method="post"
-			action="?/createSubcategory"
-			use:enhance={() => createSubEnhance}
-		>
-			<input type="hidden" name="categoryId" value={line.categoryId} />
-		</form>
-	{/each}
+				{/each}
+			</div>
+			<div class="unbudgeted-total">
+				<span>Total sin presupuesto</span>
+				<strong>{formatMoney(data.unbudgetedCents)}</strong>
+			</div>
+		</section>
+	{/if}
 </div>
 
 <style>
@@ -554,6 +1067,106 @@
 		line-height: 1.5;
 	}
 
+	.preview-banner {
+		padding: 0.875rem 1rem;
+		margin-bottom: 1.25rem;
+		border-style: dashed;
+		background: var(--input-bg);
+	}
+
+	.preview-banner-title {
+		font-size: 0.8125rem;
+		font-weight: 700;
+	}
+
+	.preview-banner-desc {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		line-height: 1.5;
+		color: var(--app-text-secondary);
+	}
+
+	.preview-banner-actions {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.5rem;
+		margin-top: 0.75rem;
+	}
+
+	.preview-banner-actions form {
+		margin: 0;
+	}
+
+	.preview-banner-actions button {
+		padding: 0.4375rem 0.75rem;
+		font-size: 0.8125rem;
+	}
+
+	.month-nav {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.625rem 0.75rem;
+		margin-bottom: 1.25rem;
+	}
+
+	.month-arrow {
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		flex-shrink: 0;
+		border: none;
+		border-radius: var(--radius-md);
+		background: var(--input-bg);
+		color: var(--app-text);
+		font-size: 1.375rem;
+		font-weight: 700;
+		line-height: 1;
+		cursor: pointer;
+
+		&.disabled {
+			opacity: 0.35;
+			pointer-events: none;
+		}
+	}
+
+	.month-center {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.125rem;
+		min-width: 0;
+		flex: 1;
+	}
+
+	.month-select {
+		max-width: 100%;
+		padding: 0.375rem 0.5rem;
+		background: transparent;
+		border: none;
+		color: var(--app-text);
+		font-size: 0.9375rem;
+		font-weight: 700;
+		text-align: center;
+		text-align-last: center;
+		cursor: pointer;
+		outline: none;
+	}
+
+	.readonly-badge {
+		font-size: 0.625rem;
+		font-weight: 700;
+		text-transform: uppercase;
+		letter-spacing: 0.04em;
+		color: var(--app-text-secondary);
+		background: var(--input-bg);
+		padding: 0.0625rem 0.375rem;
+		border-radius: 999px;
+	}
+
 	.error-banner {
 		padding: 0.875rem 1rem;
 		background: var(--color-danger-50);
@@ -573,6 +1186,14 @@
 		font-weight: 600;
 		margin-bottom: 1.25rem;
 		text-align: center;
+	}
+
+	.draft-hint {
+		padding: 0.75rem 1rem;
+		margin-bottom: 1.25rem;
+		font-size: 0.8125rem;
+		color: var(--app-text-secondary);
+		line-height: 1.5;
 	}
 
 	.summary-card {
@@ -598,12 +1219,17 @@
 		grid-template-columns: 1fr 1fr;
 		gap: 0.75rem;
 		margin-bottom: 0.875rem;
+
+		&.three {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+		}
 	}
 
 	.summary-item {
 		display: flex;
 		flex-direction: column;
 		gap: 0.125rem;
+		min-width: 0;
 	}
 
 	.summary-label {
@@ -615,10 +1241,11 @@
 	}
 
 	.summary-value {
-		font-size: 1.25rem;
+		font-size: 1.0625rem;
 		font-weight: 800;
 		font-variant-numeric: tabular-nums;
 		letter-spacing: -0.01em;
+		overflow-wrap: anywhere;
 
 		&.planned {
 			color: var(--app-text);
@@ -634,6 +1261,29 @@
 
 		&.muted {
 			color: var(--app-text-secondary);
+		}
+	}
+
+	.income-line {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		font-size: 0.8125rem;
+		color: var(--app-text-secondary);
+		margin-bottom: 0.5rem;
+	}
+
+	.income-line strong {
+		font-size: 0.9375rem;
+		font-variant-numeric: tabular-nums;
+
+		&.positive {
+			color: var(--color-primary-600);
+		}
+
+		&.negative {
+			color: var(--color-danger-500);
 		}
 	}
 
@@ -660,6 +1310,22 @@
 	.summary-hint {
 		font-size: 0.75rem;
 		color: var(--app-text-secondary);
+		line-height: 1.5;
+	}
+
+	.unbudgeted-hint {
+		margin-top: 0.5rem;
+	}
+
+	.copy-form {
+		margin-bottom: 1.25rem;
+	}
+
+	.copy-hint {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		text-align: center;
+		margin-top: 0.375rem;
 	}
 
 	.cat-list {
@@ -669,8 +1335,33 @@
 		margin-bottom: 1rem;
 	}
 
+	.hidden-divider {
+		padding: 0.5rem 0.125rem 0;
+	}
+
+	.section-title {
+		font-size: 0.9375rem;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+
+	.section-desc {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		line-height: 1.5;
+		margin-top: 0.125rem;
+	}
+
 	.cat-block {
 		overflow: hidden;
+
+		&.hidden-line {
+			background: color-mix(in srgb, var(--input-bg) 70%, var(--card-bg));
+		}
+
+		&.missing-line {
+			border-style: dashed;
+		}
 	}
 
 	.cat-head {
@@ -723,16 +1414,26 @@
 		}
 	}
 
-	.custom-tag {
+	.custom-tag,
+	.hidden-tag {
 		font-size: 0.625rem;
 		font-weight: 700;
 		text-transform: uppercase;
 		letter-spacing: 0.03em;
-		color: var(--color-primary-600);
-		background: color-mix(in srgb, var(--color-primary-500) 12%, transparent);
 		padding: 0.0625rem 0.375rem;
 		border-radius: 999px;
 		white-space: nowrap;
+	}
+
+	.custom-tag {
+		color: var(--color-primary-600);
+		background: color-mix(in srgb, var(--color-primary-500) 12%, transparent);
+	}
+
+	.hidden-tag {
+		color: var(--app-text-secondary);
+		background: var(--input-bg);
+		border: 1px solid var(--app-border);
 	}
 
 	.cat-head-right {
@@ -780,6 +1481,14 @@
 		color: var(--app-text-secondary);
 	}
 
+	.meta-tags {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		justify-content: flex-end;
+		gap: 0.25rem;
+	}
+
 	.diff {
 		font-size: 0.6875rem;
 		font-weight: 700;
@@ -821,6 +1530,10 @@
 		&.collapsed {
 			display: none;
 		}
+
+		&.static {
+			background: transparent;
+		}
 	}
 
 	.sub-row {
@@ -837,6 +1550,10 @@
 		&.general .sub-name {
 			font-weight: 600;
 		}
+
+		&.sub-hidden {
+			opacity: 0.85;
+		}
 	}
 
 	.sub-label {
@@ -847,16 +1564,25 @@
 	}
 
 	.sub-name {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.25rem;
 		font-size: 0.8125rem;
 		font-weight: 500;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 	}
 
 	.sub-real {
 		font-size: 0.6875rem;
 		color: var(--app-text-secondary);
+	}
+
+	.sub-amount {
+		font-size: 0.8125rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+		color: var(--app-text-secondary);
+		flex-shrink: 0;
 	}
 
 	.add-sub-row {
@@ -1030,6 +1756,22 @@
 		}
 	}
 
+	.hide-link {
+		background: none;
+		border: none;
+		padding: 0 0.25rem;
+		font-size: 0.75rem;
+		font-weight: 600;
+		color: var(--app-text-secondary);
+		cursor: pointer;
+		text-decoration: underline;
+		white-space: nowrap;
+
+		&:hover {
+			color: var(--app-text);
+		}
+	}
+
 	.save-btn {
 		margin-bottom: 2rem;
 	}
@@ -1064,7 +1806,58 @@
 		line-height: 1.5;
 	}
 
+	.unbudgeted {
+		padding: 1rem;
+		margin-bottom: 2rem;
+	}
+
+	.unbudgeted-list {
+		margin-top: 0.75rem;
+	}
+
+	.unbudgeted-row {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding: 0.5rem 0;
+		border-top: 1px solid var(--app-border);
+	}
+
+	.unbudgeted-name {
+		display: flex;
+		align-items: center;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		font-size: 0.8125rem;
+		font-weight: 500;
+	}
+
+	.unbudgeted-amount {
+		font-size: 0.8125rem;
+		font-weight: 700;
+		font-variant-numeric: tabular-nums;
+	}
+
+	.unbudgeted-total {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.75rem;
+		padding-top: 0.625rem;
+		margin-top: 0.25rem;
+		border-top: 1px solid var(--app-border);
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
 	.w-full {
 		width: 100%;
+	}
+
+	@media (max-width: 360px) {
+		.summary-grid.three {
+			grid-template-columns: 1fr;
+		}
 	}
 </style>

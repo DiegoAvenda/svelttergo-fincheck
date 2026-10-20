@@ -226,7 +226,14 @@
 							<!-- Eliminar -->
 							<form method="post" action="?/delete" use:enhance>
 								<input type="hidden" name="id" value={parent.id} />
-								<button type="submit" class="icon-action-btn danger" title="Eliminar">
+								<button
+									type="submit"
+									class="icon-action-btn danger"
+									title={parent.hasReferences
+										? 'No se puede eliminar: tiene movimientos o presupuesto guardado. Usa Ocultar.'
+										: 'Eliminar'}
+									disabled={parent.hasReferences}
+								>
 									<svg
 										width="16"
 										height="16"
@@ -248,7 +255,7 @@
 				{#if parent.subcategories.length > 0}
 					<div class="subs-container">
 						{#each parent.subcategories as sub (sub.key)}
-							<div class="sub-row">
+							<div class="sub-row" class:hidden-cat={sub.isHidden}>
 								<div class="cat-left">
 									<span class="sub-bullet">└</span>
 									{#if sub.isCustom && editingId === sub.id}
@@ -281,11 +288,55 @@
 										{#if sub.isCustom}
 											<span class="custom-badge">Personalizada</span>
 										{/if}
+										{#if sub.isHidden}
+											<span class="hidden-badge">Oculta</span>
+										{/if}
 									{/if}
 								</div>
 
 								{#if sub.isCustom}
 									<div class="cat-actions">
+										<form method="post" action="?/toggleHidden" use:enhance>
+											<input type="hidden" name="id" value={sub.id} />
+											<input type="hidden" name="current" value={sub.isHidden} />
+											<button
+												type="submit"
+												class="icon-action-btn"
+												title={sub.isHidden ? 'Mostrar' : 'Ocultar'}
+											>
+												{#if sub.isHidden}
+													<svg
+														width="14"
+														height="14"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<path
+															d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"
+														/>
+														<path
+															d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"
+														/>
+														<line x1="1" y1="1" x2="23" y2="23" />
+													</svg>
+												{:else}
+													<svg
+														width="14"
+														height="14"
+														viewBox="0 0 24 24"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+													>
+														<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+														<circle cx="12" cy="12" r="3" />
+													</svg>
+												{/if}
+											</button>
+										</form>
+
 										<button
 											type="button"
 											class="icon-action-btn"
@@ -306,7 +357,14 @@
 
 										<form method="post" action="?/delete" use:enhance>
 											<input type="hidden" name="id" value={sub.id} />
-											<button type="submit" class="icon-action-btn danger" title="Eliminar">
+											<button
+												type="submit"
+												class="icon-action-btn danger"
+												title={sub.hasReferences
+													? 'No se puede eliminar: tiene movimientos o presupuesto guardado. Usa Ocultar.'
+													: 'Eliminar'}
+												disabled={sub.hasReferences}
+											>
 												<svg
 													width="14"
 													height="14"
@@ -504,6 +562,14 @@
 			color: var(--color-danger-500);
 			background: var(--color-danger-50);
 		}
+
+		&:disabled,
+		&:disabled:hover {
+			opacity: 0.35;
+			cursor: not-allowed;
+			background: none;
+			color: var(--app-text-secondary);
+		}
 	}
 
 	.subs-container {
@@ -518,6 +584,10 @@
 		justify-content: space-between;
 		padding: 0.5rem 1.125rem 0.5rem 1.75rem;
 		gap: 0.5rem;
+
+		&.hidden-cat {
+			opacity: 0.6;
+		}
 	}
 
 	.sub-bullet {

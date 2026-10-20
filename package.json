@@ -10,7 +10,7 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"lint": "prettier --check . && eslint .",
 		"format": "prettier --write .",
-		"test": "node --test tests/utils.test.js tests/subcategories.test.js tests/correction-decision.test.js tests/movement-display.test.js tests/budget.test.js tests/subcategory-catalog.test.js"
+		"test": "node --test tests/utils.test.js tests/subcategories.test.js tests/correction-decision.test.js tests/movement-display.test.js tests/budget.test.js tests/subcategory-catalog.test.js tests/budget-periods.test.js tests/catalog-usage.test.js"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",

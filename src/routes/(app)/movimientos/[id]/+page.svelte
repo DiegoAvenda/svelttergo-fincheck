@@ -148,7 +148,9 @@
 							class="select-inline"
 						>
 							{#each data.categories as cat}
-								<option value={cat.id}>{cat.parentId ? '— ' : ''}{cat.name}</option>
+								<option value={cat.id}
+									>{cat.parentId ? '— ' : ''}{cat.name}{cat.isHidden ? ' (oculta)' : ''}</option
+								>
 							{/each}
 						</select>
 					{:else}
@@ -167,7 +169,7 @@
 						>
 							<option value="">Pendiente de revisión</option>
 							{#each subcatsForCategory(categoryId) as sub (sub.key)}
-								<option value={sub.key}>{sub.name}</option>
+								<option value={sub.key}>{sub.name}{sub.isHidden ? ' (oculta)' : ''}</option>
 							{/each}
 						</select>
 					{:else}
@@ -221,7 +223,7 @@
 										>
 											<option value="">Sin clasificar</option>
 											{#each data.categories as cat}
-												<option value={cat.id}>{cat.name}</option>
+												<option value={cat.id}>{cat.name}{cat.isHidden ? ' (oculta)' : ''}</option>
 											{/each}
 										</select>
 										<select
@@ -232,7 +234,7 @@
 										>
 											<option value="">Pendiente de revisión</option>
 											{#each subcatsForCategory(item.categoryId) as sub (sub.key)}
-												<option value={sub.key}>{sub.name}</option>
+												<option value={sub.key}>{sub.name}{sub.isHidden ? ' (oculta)' : ''}</option>
 											{/each}
 										</select>
 									{:else}

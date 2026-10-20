@@ -84,7 +84,15 @@
 
 	<!-- Barra de búsqueda -->
 	<div class="search-box">
-		<svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+		<svg
+			class="search-icon"
+			width="18"
+			height="18"
+			viewBox="0 0 24 24"
+			fill="none"
+			stroke="currentColor"
+			stroke-width="2"
+		>
 			<circle cx="11" cy="11" r="8" />
 			<line x1="21" y1="21" x2="16.65" y2="16.65" />
 		</svg>
@@ -148,14 +156,10 @@
 
 	<!-- Filtro de Categoría -->
 	<div class="category-filter-row">
-		<select
-			class="cat-select"
-			value={selectedCategory}
-			onchange={handleCategoryChange}
-		>
+		<select class="cat-select" value={selectedCategory} onchange={handleCategoryChange}>
 			<option value="">Todas las categorías</option>
 			{#each data.categories as cat}
-				<option value={cat.id}>{cat.name}</option>
+				<option value={cat.id}>{cat.name}{cat.isHidden ? ' (oculta)' : ''}</option>
 			{/each}
 		</select>
 	</div>
@@ -164,14 +168,23 @@
 	{#if data.movements.length === 0}
 		<div class="empty-state card">
 			<div class="empty-icon">
-				<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+				<svg
+					width="40"
+					height="40"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.5"
+				>
 					<circle cx="11" cy="11" r="8" />
 					<line x1="21" y1="21" x2="16.65" y2="16.65" />
 				</svg>
 			</div>
 			<p class="empty-title">No hay movimientos encontrados</p>
 			<p class="empty-sub">
-				{searchQuery ? 'Prueba con otros términos de búsqueda o cambia el filtro de fecha.' : 'Empieza registrando un gasto o escaneando un ticket.'}
+				{searchQuery
+					? 'Prueba con otros términos de búsqueda o cambia el filtro de fecha.'
+					: 'Empieza registrando un gasto o escaneando un ticket.'}
 			</p>
 		</div>
 	{:else}
@@ -188,19 +201,40 @@
 								<div class="item-left">
 									<div class="item-icon" class:income={item.type === 'income'}>
 										{#if item.source === 'ticket'}
-											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<svg
+												width="18"
+												height="18"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+											>
 												<rect x="3" y="3" width="18" height="18" rx="2" />
 												<line x1="7" y1="8" x2="17" y2="8" />
 												<line x1="7" y1="12" x2="17" y2="12" />
 												<line x1="7" y1="16" x2="13" y2="16" />
 											</svg>
 										{:else if item.type === 'income'}
-											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<svg
+												width="18"
+												height="18"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+											>
 												<line x1="12" y1="19" x2="12" y2="5" />
 												<polyline points="5 12 12 5 19 12" />
 											</svg>
 										{:else}
-											<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+											<svg
+												width="18"
+												height="18"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+											>
 												<line x1="12" y1="5" x2="12" y2="19" />
 												<polyline points="19 12 12 19 5 12" />
 											</svg>

@@ -36,6 +36,22 @@ test('Subcategory catalog utilities', async (t) => {
 		assert.equal(map.get('cat-custom')[0].id, 'sub-1');
 	});
 
+	await t.test('groupSubcategories propaga isHidden (historial y Ajustes)', () => {
+		const map = groupSubcategories(
+			[{ id: 'cat-1', categoryKey: 'vivienda' }],
+			[{ key: 'renta', name: 'Renta', categoryKey: 'vivienda' }],
+			[
+				{ id: 'sub-1', key: 'custom-abc', name: 'Cocina', categoryId: 'cat-1', isHidden: true },
+				{ id: 'sub-2', key: 'custom-def', name: 'Patio', categoryId: 'cat-1' }
+			]
+		);
+
+		const subs = map.get('cat-1');
+		assert.equal(subs.find((s) => s.key === 'renta').isHidden, false);
+		assert.equal(subs.find((s) => s.key === 'custom-abc').isHidden, true);
+		assert.equal(subs.find((s) => s.key === 'custom-def').isHidden, false);
+	});
+
 	await t.test('groupSubcategories ignora subcategorías de categorías ausentes', () => {
 		const map = groupSubcategories(
 			[{ id: 'cat-1', categoryKey: 'vivienda' }],

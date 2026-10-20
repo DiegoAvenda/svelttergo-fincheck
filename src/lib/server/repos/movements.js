@@ -174,3 +174,15 @@ export async function countMovements(userId) {
 	const db = await getDb();
 	return db.collection('movements').countDocuments({ userId });
 }
+
+/**
+ * Fecha del movimiento más antiguo del usuario. Sirve para limitar la
+ * navegación del historial de presupuestos hasta donde hay datos reales.
+ * @param {string} userId
+ * @returns {Promise<Date|null>}
+ */
+export async function getEarliestMovementDate(userId) {
+	const db = await getDb();
+	const doc = await db.collection('movements').find({ userId }).sort({ date: 1 }).limit(1).next();
+	return doc?.date ?? null;
+}

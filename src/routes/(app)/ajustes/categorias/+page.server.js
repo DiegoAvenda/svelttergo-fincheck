@@ -11,14 +11,19 @@ import {
 	createCustomSubcategory,
 	deleteCustomCategory,
 	deleteCustomSubcategory,
+	getCatalogUsage,
 	renameCustomCategory,
-	renameCustomSubcategory
+	renameCustomSubcategory,
+	setCategoryHidden,
+	setCustomSubcategoryHidden
 } from '$lib/server/repos/custom-catalog.js';
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const categories = await getCategoriesByUser(userId);
-	const catalog = await buildCatalogForUser(userId, categories);
+	// Incluye ocultas para poder mostrarlas (con badge) y volver a mostrarlas.
+	const catalog = await buildCatalogForUser(userId, categories, { includeHidden: true });
+	const usage = await getCatalogUsage(userId);
 
 	// Padres: fijas (en orden del catálogo) + personalizadas (al final).
 	const orderIndex = new Map(FIXED_CATEGORIES.map((c, i) => [c.key, i]));
@@ -40,14 +45,24 @@ export const load = async (event) => {
 			key: s.key,
 			id: s.id ?? null,
 			name: s.name,
-			isCustom: !!s.isCustom
+			isCustom: !!s.isCustom,
+			isHidden: !!s.isHidden,
+			hasSpending: !!s.isCustom && usage.subcategoryKeys.has(s.key),
+			hasReferences: !!s.isCustom && usage.referencedSubcategoryKeys.has(s.key)
 		}));
+		const catHasSpending =
+			!!p.isCustom && (usage.categoryIds.has(id) || subs.some((s) => s.isCustom && s.hasSpending));
+		const catHasReferences =
+			!!p.isCustom &&
+			(usage.referencedCategoryIds.has(id) || subs.some((s) => s.isCustom && s.hasReferences));
 		return {
 			id,
 			name: p.name,
 			isFavorite: !!p.isFavorite,
 			isHidden: !!p.isHidden,
 			isCustom: !!p.isCustom,
+			hasSpending: catHasSpending,
+			hasReferences: catHasReferences,
 			subcategories: subs
 		};
 	});
@@ -136,12 +151,21 @@ export const actions = {
 
 		if (!id) return fail(400, { error: 'ID faltante' });
 
-		await updateCategory(userId, id, { isHidden: !current });
-		return { success: true };
+		// Categorías (fijas o personalizadas) o subcategorías personalizadas.
+		// Ocultar solo cambia la visibilidad: no borra movimientos ni líneas de
+		// presupuesto (los meses anteriores y el activo las conservan).
+		const cat = await setCategoryHidden(userId, id, !current);
+		if (cat.updated) return { success: true };
+
+		const sub = await setCustomSubcategoryHidden(userId, id, !current);
+		if (sub.updated) return { success: true };
+
+		return fail(403, { error: 'Solo puedes ocultar categorías o subcategorías personalizadas.' });
 	},
 
-	// Solo se pueden borrar las categorías/subcategorías personalizadas. Al
-	// borrar, los movimientos se reasignan a "Sin clasificar" desde el repo.
+	// Solo se pueden borrar las categorías/subcategorías personalizadas sin
+	// referencias (movimientos, ítems o presupuesto de cualquier mes). Si tienen
+	// referencias, hay que ocultarlas.
 	delete: async (event) => {
 		const userId = event.locals.user.id;
 		const formData = await event.request.formData();
@@ -151,9 +175,21 @@ export const actions = {
 
 		const cat = await deleteCustomCategory(userId, id);
 		if (cat.removed) return { success: true };
+		if (cat.blocked) {
+			return fail(400, {
+				error:
+					'No se puede eliminar: tiene movimientos o presupuesto guardado. Usa la opción "Ocultar" para conservar el historial.'
+			});
+		}
 
 		const sub = await deleteCustomSubcategory(userId, id);
 		if (sub.removed) return { success: true };
+		if (sub.blocked) {
+			return fail(400, {
+				error:
+					'No se puede eliminar: tiene movimientos o presupuesto guardado. Usa la opción "Ocultar" para conservar el historial.'
+			});
+		}
 
 		return fail(403, { error: 'El catálogo original no se puede eliminar.' });
 	}

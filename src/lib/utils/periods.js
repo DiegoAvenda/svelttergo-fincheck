@@ -116,6 +116,113 @@ export function getPeriodRange(period, monthStartDay = 1) {
 }
 
 /**
+ * Valida una clave de mes canónica `YYYY-MM`.
+ * @param {string|null|undefined} monthKey
+ * @returns {boolean}
+ */
+export function isValidMonthKey(monthKey) {
+	return typeof monthKey === 'string' && /^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey);
+}
+
+/**
+ * Clave canónica `YYYY-MM` del mes contable que contiene `referenceDate`.
+ * Respeta `monthStartDay`: si el día es anterior al inicio del mes contable,
+ * el mes corresponde al calendario anterior.
+ * @param {Date} referenceDate
+ * @param {number} [monthStartDay]
+ * @returns {string}
+ */
+export function monthKeyFromDate(referenceDate, monthStartDay = 1) {
+	const { start } = getMonthRange(referenceDate, monthStartDay);
+	return `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Clave del mes contable actual en CDMX.
+ * @param {number} [monthStartDay]
+ * @param {Date} [referenceDate] - Inyectable para pruebas.
+ * @returns {string}
+ */
+export function currentMonthKey(monthStartDay = 1, referenceDate = todayInMX()) {
+	return monthKeyFromDate(referenceDate, monthStartDay);
+}
+
+/**
+ * Rango de fechas [start, end) de una clave de mes contable `YYYY-MM`.
+ * @param {string} monthKey
+ * @param {number} [monthStartDay]
+ * @returns {{ start: Date, end: Date, label: string }}
+ */
+export function getMonthRangeByKey(monthKey, monthStartDay = 1) {
+	if (!isValidMonthKey(monthKey)) {
+		throw new Error(`Mes inválido: ${monthKey}`);
+	}
+
+	const [year, month] = monthKey.split('-').map(Number);
+	const start = new Date(Date.UTC(year, month - 1, monthStartDay));
+	const end = new Date(Date.UTC(year, month, monthStartDay));
+	const label = start.toLocaleDateString('es-MX', {
+		month: 'long',
+		year: 'numeric',
+		timeZone: 'UTC'
+	});
+
+	return { start, end, label };
+}
+
+/**
+ * Desplaza una clave de mes `YYYY-MM` N meses (positivo o negativo).
+ * @param {string} monthKey
+ * @param {number} delta
+ * @returns {string}
+ */
+export function shiftMonthKey(monthKey, delta) {
+	if (!isValidMonthKey(monthKey)) {
+		throw new Error(`Mes inválido: ${monthKey}`);
+	}
+
+	const [year, month] = monthKey.split('-').map(Number);
+	const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
+	return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+/**
+ * Clave del mes anterior.
+ * @param {string} monthKey
+ * @returns {string}
+ */
+export function previousMonthKey(monthKey) {
+	return shiftMonthKey(monthKey, -1);
+}
+
+/**
+ * Clave del mes siguiente.
+ * @param {string} monthKey
+ * @returns {string}
+ */
+export function nextMonthKey(monthKey) {
+	return shiftMonthKey(monthKey, 1);
+}
+
+/**
+ * Etiqueta legible de una clave de mes (`octubre de 2026`).
+ * @param {string} monthKey
+ * @returns {string}
+ */
+export function monthKeyLabel(monthKey) {
+	if (!isValidMonthKey(monthKey)) {
+		throw new Error(`Mes inválido: ${monthKey}`);
+	}
+
+	const [year, month] = monthKey.split('-').map(Number);
+	return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString('es-MX', {
+		month: 'long',
+		year: 'numeric',
+		timeZone: 'UTC'
+	});
+}
+
+/**
  * Retorna el rango de comparación (periodo anterior de igual duración).
  * @param {{ start: Date, end: Date }} range
  * @returns {{ start: Date, end: Date }}

@@ -1,3 +1,4 @@
+import { dev } from '$app/environment';
 import {
 	sumIncomeInRange,
 	sumExpensesInRange,
@@ -5,10 +6,16 @@ import {
 	deleteMovement
 } from '$lib/server/repos/movements.js';
 import { getSpendingByCategory } from '$lib/server/analytics/spending-by-category.js';
-import { getVisibleCategories } from '$lib/server/repos/categories.js';
-import { getBudget } from '$lib/server/repos/budgets.js';
+import { getCategoriesByUser } from '$lib/server/repos/categories.js';
+import { getBudget, migrateLegacyBudgets } from '$lib/server/repos/budgets.js';
 import { getSettings } from '$lib/server/repos/settings.js';
-import { getPeriodRange } from '$lib/utils/periods.js';
+import {
+	currentMonthKey,
+	getMonthRangeByKey,
+	getPeriodRange,
+	isValidMonthKey,
+	shiftMonthKey
+} from '$lib/utils/periods.js';
 import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
 import {
 	sumPlannedCents,
@@ -22,17 +29,40 @@ import { fail } from '@sveltejs/kit';
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 
-	const [settings, budget] = await Promise.all([getSettings(userId), getBudget(userId)]);
+	const settings = await getSettings(userId);
 	const monthStartDay = settings?.monthStartDay || 1;
+	const realCurrentKey = currentMonthKey(monthStartDay);
 
-	const { start, end, label: monthLabel } = getPeriodRange('this-month', monthStartDay);
+	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` hace que esta
+	// pantalla crea que ese es el mes actual. No cambia datos ni el reloj y en
+	// producción se ignora por completo.
+	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
+	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
+	const previewMode = !!previewKey && previewKey !== realCurrentKey;
+	const currentKey = previewKey || realCurrentKey;
+
+	if (!previewMode) {
+		// El presupuesto legacy (sin mes) pasa al mes contable actual.
+		await migrateLegacyBudgets(userId, currentKey);
+	}
+	const budget = await getBudget(userId, currentKey);
+
+	const {
+		start,
+		end,
+		label: monthLabel
+	} = previewKey
+		? getMonthRangeByKey(previewKey, monthStartDay)
+		: getPeriodRange('this-month', monthStartDay);
 
 	const [incomeCents, expensesCents, rawSpending, recentMovements, categories] = await Promise.all([
 		sumIncomeInRange(userId, start, end),
 		sumExpensesInRange(userId, start, end),
 		getSpendingByCategory(userId, start, end),
 		getRecentMovements(userId, 7),
-		getVisibleCategories(userId)
+		// Todas las categorías (incluidas las ocultas) para resolver el nombre
+		// histórico de cada movimiento.
+		getCategoriesByUser(userId)
 	]);
 
 	// Resumen del presupuesto (gastos planeados, distintos de los reales).
@@ -100,7 +130,14 @@ export const load = async (event) => {
 		topCategories,
 		budgetSummary,
 		recentMovements: serializedRecent,
-		createdNotice: createdId ? { id: createdId, type: createdType } : null
+		createdNotice: createdId ? { id: createdId, type: createdType } : null,
+		// Solo dev: datos para el control de simulación de mes.
+		preview: dev
+			? {
+					monthKey: previewMode ? previewKey : null,
+					nextMonthKey: shiftMonthKey(previewKey || realCurrentKey, 1)
+				}
+			: null
 	};
 };
 

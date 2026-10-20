@@ -14,6 +14,51 @@ export function sumPlannedCents(lines) {
 }
 
 /**
+ * ¿El presupuesto tiene al menos una línea con monto planeado > 0?
+ * No filtra por visibilidad: las líneas ocultas conservadas cuentan.
+ * @param {Array<{ plannedCents?: number }>} [lines]
+ * @returns {boolean}
+ */
+export function budgetHasPlanned(lines) {
+	return (lines || []).some((line) => (Number(line?.plannedCents) || 0) > 0);
+}
+
+/**
+ * Copia profunda-ligera de las líneas de un presupuesto. Conserva las
+ * referencias estables (`categoryId`, `subcategoryKey`) y los nombres
+ * snapshot, sin compartir objetos con el origen.
+ * @param {Array<{
+ *   categoryId?: any,
+ *   subcategoryKey?: string|null,
+ *   plannedCents?: number,
+ *   categoryName?: string|null,
+ *   subcategoryName?: string|null,
+ *   customKey?: string|null,
+ *   customName?: string|null
+ * }>} [lines]
+ * @returns {Array<{
+ *   categoryId: any,
+ *   subcategoryKey: string|null,
+ *   plannedCents: number,
+ *   categoryName?: string,
+ *   subcategoryName?: string,
+ *   customKey?: string,
+ *   customName?: string
+ * }>}
+ */
+export function cloneBudgetLines(lines) {
+	return (lines || []).map((line) => ({
+		categoryId: line?.categoryId ?? null,
+		subcategoryKey: line?.subcategoryKey ?? null,
+		plannedCents: Number(line?.plannedCents) || 0,
+		...(line?.categoryName ? { categoryName: String(line.categoryName) } : {}),
+		...(line?.subcategoryName ? { subcategoryName: String(line.subcategoryName) } : {}),
+		...(line?.customKey ? { customKey: String(line.customKey) } : {}),
+		...(line?.customName ? { customName: String(line.customName) } : {})
+	}));
+}
+
+/**
  * Suma el gasto REAL registrado en las categorías del presupuesto.
  * @param {Array<{ spentCents?: number }>} [lines]
  * @returns {number}

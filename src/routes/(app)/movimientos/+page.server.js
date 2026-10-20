@@ -1,5 +1,5 @@
 import { listMovements, deleteMovement } from '$lib/server/repos/movements.js';
-import { getVisibleCategories } from '$lib/server/repos/categories.js';
+import { getCategoriesByUser } from '$lib/server/repos/categories.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { movementCategoryLabel } from '$lib/utils/movement-display.js';
 import { fail } from '@sveltejs/kit';
@@ -23,7 +23,9 @@ export const load = async (event) => {
 	}
 
 	const [categories, { movements, total }] = await Promise.all([
-		getVisibleCategories(userId),
+		// Todas las categorías (incluidas las ocultas): el historial debe seguir
+		// mostrando el nombre con el que se registró cada movimiento.
+		getCategoriesByUser(userId),
 		listMovements(userId, {
 			search: search || undefined,
 			categoryId: categoryId || undefined,
@@ -59,7 +61,8 @@ export const load = async (event) => {
 		.filter((c) => !c.isSystem)
 		.map((c) => ({
 			id: c._id.toString(),
-			name: c.name
+			name: c.name,
+			isHidden: !!c.isHidden
 		}));
 
 	return {
