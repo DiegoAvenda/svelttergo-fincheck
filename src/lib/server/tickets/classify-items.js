@@ -199,10 +199,11 @@ export async function classifyItems(userId, items, categories, options = {}) {
 		return results;
 	}
 
-	// Paso 2: consultar a la IA (OpenRouter free, fallback Anthropic) para los restantes
+	// Paso 2: consultar a la IA (Groq principal -> OpenRouter fallback -> Anthropic)
+	const groqKey = env.GROQ_API_KEY || process.env.GROQ_API_KEY;
 	const openRouterKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
 	const anthropicKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-	if (!openRouterKey && !anthropicKey) {
+	if (!groqKey && !openRouterKey && !anthropicKey) {
 		// Degradación elegante: sugerencia local y lo demás queda pendiente.
 		applyFallbacks(results, categoryIdByKey);
 		return results;
@@ -433,13 +434,14 @@ function applyDepartmentFallback(results, categoryIdByKey) {
 		},
 		{
 			// Limpieza básica del súper también va a Despensa (definición del catálogo fijo).
-			departments: ['limpieza'],
+			departments: ['limpieza', 'quimicos'],
 			keywords: [
 				'detergente',
 				'cloro',
 				'suavitel',
 				'limpiador',
 				'escoba',
+				'escob',
 				'trapeador',
 				'pinol',
 				'fabuloso',

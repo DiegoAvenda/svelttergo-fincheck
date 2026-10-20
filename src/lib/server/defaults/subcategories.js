@@ -466,6 +466,7 @@ export function suggestSubcategoryKey(text) {
 			'fabuloso',
 			'pinol',
 			'escoba',
+			'escob',
 			'trapeador',
 			'lavatrastes',
 			'suavizante'

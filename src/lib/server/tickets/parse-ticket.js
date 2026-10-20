@@ -70,13 +70,14 @@ const parsedTicketSchema = z.object({
  * @returns {Promise<{ success: true, data: { merchant: string|null, date: string|null, totalCents: number, items: Array<{ itemCode: string|null, rawDescription: string, cleanDescription: string, originalDescription: string, department: string|null, amountCents: number, status: 'identified'|'ambiguous'|'pending', categoryId: string|null }> } } | { success: false, error: string }>}
  */
 export async function parseTicketImage(imageBuffer, mimeType) {
+	const groqKey = env.GROQ_API_KEY || process.env.GROQ_API_KEY;
 	const openRouterKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY;
 	const anthropicKey = env.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY;
-	if (!openRouterKey && !anthropicKey) {
+	if (!groqKey && !openRouterKey && !anthropicKey) {
 		return {
 			success: false,
 			error:
-				'No se ha configurado OPENROUTER_API_KEY. Crea una key free en https://openrouter.ai/keys y agregala a tu .env'
+				'No se ha configurado GROQ_API_KEY ni OPENROUTER_API_KEY. Crea una key en https://groq.com/keys o https://openrouter.ai/keys y agregala a tu .env'
 		};
 	}
 
@@ -87,9 +88,9 @@ export async function parseTicketImage(imageBuffer, mimeType) {
 	else if (mimeType.includes('webp')) mediaType = 'image/webp';
 	else if (mimeType.includes('gif')) mediaType = 'image/gif';
 
-	// Si hay key de OpenRouter, es el camino principal (modelos free con vision).
+	// Principal: Groq (GROQ_API_KEY); fallback: OpenRouter (OPENROUTER_API_KEY).
 	// Si solo hay Anthropic, se mantiene compatibilidad con el codigo anterior.
-	const useAnthropicOnly = !openRouterKey && !!anthropicKey;
+	const useAnthropicOnly = !groqKey && !openRouterKey && !!anthropicKey;
 
 	try {
 		let text;

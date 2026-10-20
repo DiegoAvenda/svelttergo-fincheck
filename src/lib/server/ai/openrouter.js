@@ -1,19 +1,14 @@
 import { env } from '$env/dynamic/private';
 
 const OPENROUTER_URL = 'https://openrouter.ai/api/v1/chat/completions';
+const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
 
 export function getOpenRouterConfig() {
 	const apiKey = env.OPENROUTER_API_KEY || process.env.OPENROUTER_API_KEY || '';
-	// Opción C (híbrida) con visión: Nemotron 3.5 Super VL -> Nemotron Omni VL -> router free.
 	const primary =
 		env.OPENROUTER_MODEL || process.env.OPENROUTER_MODEL || 'nvidia/nemotron-3.5-super-vl:free';
-	const fallback =
-		env.OPENROUTER_FALLBACK_MODEL ||
-		process.env.OPENROUTER_FALLBACK_MODEL ||
-		'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free';
-	const models = [...new Set([primary, fallback].filter(Boolean))];
-	// El router free siempre queda como último recurso aunque el usuario ponga otro fallback.
-	if (!models.includes('openrouter/free')) models.push('openrouter/free');
+	// Sin OPENROUTER_FALLBACK_MODEL: el fallback es Groq (o solo este modelo).
+	const models = [primary].filter(Boolean);
 	const appUrl = env.OPENROUTER_APP_URL || process.env.OPENROUTER_APP_URL || '';
 	const appTitle =
 		env.OPENROUTER_APP_TITLE || process.env.OPENROUTER_APP_TITLE || 'contlana Tickets';
@@ -22,6 +17,60 @@ export function getOpenRouterConfig() {
 		env.OPENROUTER_REASONING_EFFORT || process.env.OPENROUTER_REASONING_EFFORT || 'none';
 	return { apiKey, models, appUrl, appTitle, timeoutMs, reasoningEffort };
 }
+
+async function callGroq({ apiKey, model, system, messages, max_tokens, temperature }) {
+	const finalMessages = [];
+	if (system) finalMessages.push({ role: 'system', content: system });
+	for (const m of messages) finalMessages.push(m);
+
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 60000);
+	try {
+		const res = await fetch(GROQ_URL, {
+			method: 'POST',
+			signal: controller.signal,
+			headers: {
+				Authorization: `Bearer ${apiKey}`,
+				'Content-Type': 'application/json'
+			},
+			body: JSON.stringify({
+				model,
+				messages: finalMessages,
+				max_tokens,
+				temperature
+			})
+		});
+		if (!res.ok) {
+			const bodyText = await res.text().catch(() => '');
+			const err = new Error(`groq_${res.status}: ${bodyText.slice(0, 500)}`);
+			err.status = res.status;
+			err.model = model;
+			throw err;
+		}
+		const data = await res.json();
+		const choice = data?.choices?.[0];
+		const msg = choice?.message;
+		const contentText =
+			typeof msg?.content === 'string'
+				? msg.content
+				: Array.isArray(msg?.content)
+					? msg.content.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('')
+					: '';
+		const text = contentText.trim() || msg?.reasoning?.trim() || msg?.reasoning_content?.trim() || choice?.text?.trim() || '';
+		const modelUsed = data?.model || model;
+		if (!text) {
+			console.error(`[groq] empty from ${model}:`, JSON.stringify(data)?.slice(0, 800));
+			throw new Error('empty_response from groq');
+		}
+		return { text, modelUsed };
+	} catch (e) {
+		if (e?.name === 'AbortError') throw new Error('timeout con groq');
+		throw e;
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
 export async function callOpenRouter({
 	system,
 	messages,
@@ -29,19 +78,41 @@ export async function callOpenRouter({
 	temperature = 0.1,
 	reasoning
 }) {
-	const { apiKey, models, appUrl, appTitle, timeoutMs, reasoningEffort } = getOpenRouterConfig();
-	if (!apiKey) {
+	const groqKey = env.GROQ_API_KEY || process.env.GROQ_API_KEY || '';
+	const groqModel = env.GROQ_MODEL || process.env.GROQ_MODEL || 'qwen/qwen3.8-27b';
+
+	const finalMessages = [];
+	if (system) finalMessages.push({ role: 'system', content: system });
+	for (const m of messages) finalMessages.push(m);
+
+	// 1. Principal: Groq
+	if (groqKey) {
+		try {
+			return await callGroq({
+				apiKey: groqKey,
+				model: groqModel,
+				system,
+				messages: finalMessages,
+				max_tokens,
+				temperature
+			});
+		} catch (e) {
+			console.error('[callOpenRouter] Groq failed:', e?.message || e);
+			// Falla al fallback: OpenRouter
+		}
+	}
+
+	// 2. Fallback: OpenRouter
+	const openRouterConfig = getOpenRouterConfig();
+	if (!openRouterConfig.apiKey) {
 		const err = new Error('missing_openrouter_key');
 		err.code = 'missing_openrouter_key';
 		throw err;
 	}
-	const finalMessages = [];
-	if (system) finalMessages.push({ role: 'system', content: system });
-	for (const m of messages) finalMessages.push(m);
+
+	const { apiKey, models, appUrl, appTitle, timeoutMs, reasoningEffort } = openRouterConfig;
 	let lastError = null;
 
-	// Por defecto usamos effort: 'none' en tareas de extracción estructurada
-	// para evitar que modelos MoE/reasoning (como Nemotron o R1) gasten todos los tokens en CoT.
 	const requestReasoning =
 		reasoning !== undefined
 			? reasoning
@@ -85,21 +156,19 @@ export async function callOpenRouter({
 			const choice = data?.choices?.[0];
 			const msg = choice?.message;
 
-			// Si el modelo cortó por límite de tokens antes de producir el contenido final:
 			if (choice?.finish_reason === 'length' && !msg?.content) {
 				console.error(`[openrouter] Model ${model} hit token limit during reasoning.`);
 				lastError = new Error(`token_limit_exceeded with ${model}`);
 				continue;
 			}
 
-			// Priorizar msg.content (la respuesta directa del modelo)
 			const contentText =
 				typeof msg?.content === 'string'
 					? msg.content
 					: Array.isArray(msg?.content)
 						? msg.content
-								.map((p) => (typeof p === 'string' ? p : p?.text || ''))
-								.join('')
+							.map((p) => (typeof p === 'string' ? p : p?.text || ''))
+							.join('')
 						: '';
 
 			const text =
@@ -110,7 +179,6 @@ export async function callOpenRouter({
 				'';
 			const modelUsed = data?.model || model;
 			if (!text) {
-				// Log para depurar qué devolvió el proveedor (sin la imagen)
 				console.error(`[openrouter] empty from ${model}:`, JSON.stringify(data)?.slice(0, 800));
 				lastError = new Error(`empty_response from ${model}`);
 				continue;
@@ -134,10 +202,8 @@ export async function callOpenRouter({
 export function extractJson(text) {
 	let jsonText = (text || '').trim();
 
-	// Log para depuración: ver qué devolvió la IA
 	console.error('[extractJson] Raw response (first 500 chars):', jsonText.slice(0, 500));
 
-	// Detectar respuestas de seguridad del modelo que no son JSON
 	if (
 		jsonText.toLowerCase().includes('user safety') ||
 		jsonText.toLowerCase().includes('safety: safe') ||
@@ -149,7 +215,6 @@ export function extractJson(text) {
 		throw err;
 	}
 
-	// 1. Intentar extraer de bloques de código markdown ```json ... ``` o ``` ... ```
 	const codeBlockMatches = [...jsonText.matchAll(/```(?:json)?\s*([\s\S]*?)(?:```|$)/gi)];
 	for (const match of codeBlockMatches) {
 		const candidate = (match[1] || '').trim();
@@ -159,14 +224,12 @@ export function extractJson(text) {
 		}
 	}
 
-	// 2. Localizar el primer '{' o '['
 	const startIdx = jsonText.search(/[{[]/);
 	if (startIdx === -1) {
 		console.error('[extractJson] No JSON start delimiter found in:', jsonText.slice(0, 300));
 		throw new Error('no_json_found');
 	}
 
-	// 3. Balancear delimitadores respetando cadenas entre comillas y escapes
 	let depth = 0;
 	let inString = false;
 	let escape = false;
@@ -223,7 +286,7 @@ export function extractJson(text) {
 export function openRouterErrorMessage(err) {
 	if (!err) return 'Ocurrio un error al procesar el ticket con la IA.';
 	if (err.code === 'missing_openrouter_key')
-		return 'No se ha configurado OPENROUTER_API_KEY. Agrega tu key free de https://openrouter.ai/keys en el .env';
+		return 'No se ha configurado GROQ_API_KEY ni OPENROUTER_API_KEY. Crea una key en https://groq.com/keys (principal) o https://openrouter.ai/keys (fallback) y agregala a tu .env';
 	if (err.code === 'model_safety_block')
 		return 'El modelo de IA bloqueo el procesamiento por seguridad. Intenta con otra foto o registra el ticket manualmente.';
 	if (err.status === 401)

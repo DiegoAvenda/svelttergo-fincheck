@@ -146,10 +146,7 @@
 					placeholder="Ej. 18000"
 					class="input-field"
 				/>
-				<span class="field-hint"
-					>Este monto es solo una referencia para calcular el % de ingresos de cada hábito. El
-					ingreso esperado de cada ciclo se define en Presupuesto y no crea ingresos reales.</span
-				>
+				<span class="field-hint">Referencia para % de gastos. No crea ingresos reales.</span>
 			</div>
 
 			<div class="field">
@@ -159,11 +156,7 @@
 					<option value="fixed">Fijos o recurrentes</option>
 					<option value="variable">Variables</option>
 				</select>
-				<span class="field-hint"
-					>Sirve para decidir si la propuesta del siguiente ciclo precarga el ingreso esperado. Con
-					ingresos variables no se precarga: solo se muestra el ingreso real anterior como
-					referencia.</span
-				>
+				<span class="field-hint">Si es fijo, se precarga; si variable, solo referencia.</span>
 			</div>
 
 			<div class="field">
@@ -178,10 +171,7 @@
 						<option value={day}>Día {day} de cada mes</option>
 					{/each}
 				</select>
-				<span class="field-hint"
-					>Se admite del 1 al 28. Cambiarlo no modifica los presupuestos guardados: se aplica al
-					siguiente ciclo.</span
-				>
+				<span class="field-hint">1–28. Se aplica al siguiente ciclo; no cambia los guardados.</span>
 			</div>
 
 			<div class="field">
@@ -323,10 +313,12 @@
 		padding: 1rem 1.25rem;
 		text-decoration: none;
 		color: var(--app-text);
-		transition: background 150ms ease;
+		transition: background 150ms ease, box-shadow 150ms ease;
+		border-radius: var(--radius-md);
 
 		&:hover {
 			background: var(--color-surface-100);
+			box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 		}
 	}
 
