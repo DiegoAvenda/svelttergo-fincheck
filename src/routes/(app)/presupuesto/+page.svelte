@@ -1,7 +1,7 @@
 <script>
 	import { enhance } from '$app/forms';
 	import { formatMoney, parseAmountToCents } from '$lib/utils/money.js';
-	import { remainingFromIncome, budgetUsedPct, lineProgressPct } from '$lib/utils/budget-math.js';
+	import { remainingFromIncome, lineProgressPct } from '$lib/utils/budget-math.js';
 
 	let { data, form } = $props();
 
@@ -104,8 +104,14 @@
 	);
 	let expectedIncomeCents = $derived(data.isCurrentMonth ? incomeCents : data.incomeCents);
 	let realBalanceCents = $derived(data.realIncomeCents - data.spentCents);
-	let remaining = $derived(remainingFromIncome(incomeCents, plannedCents));
-	let usedPct = $derived(budgetUsedPct(plannedCents, incomeCents));
+	// "Sin asignar" = ingreso esperado menos lo planeado (presupuesto base cero).
+	let unassignedCents = $derived(
+		data.isCurrentMonth
+			? remainingFromIncome(incomeCents, plannedCents)
+			: remainingFromIncome(data.incomeCents, data.plannedCents)
+	);
+	// Avance de ejecución: gasto real sobre gasto planeado (no sobre el ingreso).
+	let spentPct = $derived(lineProgressPct(data.spentCents, summaryPlanned));
 
 	/** @param {any} line */
 	function toggle(line) {
@@ -399,7 +405,7 @@
 		<div class="success-banner card">
 			Se creó una propuesta con {form.proposedCount} líneas
 			{#if form.proposedFromLabel}desde {form.proposedFromLabel}{/if}. Revísala y confírmala para
-			guardarla como presupuesto del ciclo.
+			convertirla en el presupuesto del ciclo.
 		</div>
 	{/if}
 
@@ -413,7 +419,8 @@
 				<p class="draft-banner-title">Propuesta pendiente de confirmar</p>
 				<p class="draft-banner-desc">
 					Esta propuesta todavía no cuenta como presupuesto confirmado. Revisa los importes y
-					confirma al final; si no la necesitas, puedes descartarla.
+					confirma al final para convertirla en el presupuesto del ciclo; si no la necesitas, puedes
+					descartarla.
 				</p>
 			</div>
 			{#if !data.replacedConfirmed}
@@ -443,11 +450,13 @@
 		</div>
 	{/if}
 
-	<!-- Resumen: planeado, real y diferencia -->
+	<!-- Resumen: plan del ciclo (ingreso esperado vs. planeado) y ejecución real -->
 	<div class="summary-card card">
 		{#if data.isCurrentMonth}
 			<div class="income-field">
-				<label for="plannedIncome" class="field-label">Ingreso esperado del ciclo ($ MXN)</label>
+				<label for="plannedIncome" class="field-label"
+					>Ingreso que esperas recibir este ciclo ($ MXN)</label
+				>
 				<input
 					type="text"
 					inputmode="decimal"
@@ -460,96 +469,144 @@
 				/>
 				{#if data.incomeIsFallback}
 					<span class="summary-hint"
-						>Tomado de tu ingreso mensual aproximado en Ajustes. Se guardará en este ciclo al
-						confirmar.</span
+						>Este monto viene de tu ingreso mensual de referencia en Ajustes. Puedes cambiarlo; se
+						guardará en este ciclo al confirmar.</span
 					>
 				{:else if data.incomeType === 'fixed'}
 					<span class="summary-hint"
-						>Ingreso fijo: la propuesta usa el esperado del ciclo anterior.</span
+						>Marcaste ingresos fijos: la propuesta copiará el ingreso esperado del ciclo anterior.</span
 					>
 				{:else if data.incomeType === 'variable'}
 					<span class="summary-hint"
-						>Ingreso variable: no se precarga. Referencia: ingreso real del ciclo anterior
-						{formatMoney(data.previousRealIncomeCents)}.</span
+						>Marcaste ingresos variables: no se precarga. Como referencia, el ciclo anterior
+						registró {formatMoney(data.previousRealIncomeCents)} de ingreso real.</span
 					>
 				{:else}
 					<span class="summary-hint"
-						>Define el tipo de ingresos en Ajustes para que la propuesta sepa si precargar el
-						esperado.</span
+						>Define en Ajustes si tus ingresos son fijos o variables para que la propuesta sepa si
+						precargar el ingreso esperado.</span
 					>
 				{/if}
 			</div>
 		{/if}
 
-		<div class="summary-grid three income-summary">
-			<div class="summary-item">
-				<span class="summary-label">Ingreso esperado</span>
-				<span class="summary-value" class:muted={expectedIncomeCents === null}>
-					{expectedIncomeCents !== null ? formatMoney(expectedIncomeCents) : 'Sin definir'}
-				</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Ingreso real</span>
-				<span class="summary-value">{formatMoney(data.realIncomeCents)}</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Balance real</span>
-				<span
-					class="summary-value"
-					class:positive={realBalanceCents >= 0}
-					class:negative={realBalanceCents < 0}
-				>
-					{formatMoney(realBalanceCents)}
-				</span>
-			</div>
-		</div>
-
-		<div class="summary-grid three">
-			<div class="summary-item">
-				<span class="summary-label">Planeado</span>
-				<span class="summary-value planned">{formatMoney(summaryPlanned)}</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Gasto real</span>
-				<span class="summary-value">{formatMoney(data.spentCents)}</span>
-			</div>
-			<div class="summary-item">
-				<span class="summary-label">Diferencia</span>
-				<span
-					class="summary-value"
-					class:positive={summaryDifference >= 0}
-					class:negative={summaryDifference < 0}
-				>
-					{formatMoney(summaryDifference)}
-				</span>
-			</div>
-		</div>
-
-		{#if data.isCurrentMonth}
-			{#if remaining !== null}
-				<div class="income-line">
-					<span>Te quedaría del esperado</span>
-					<strong class:positive={remaining >= 0} class:negative={remaining < 0}>
-						{formatMoney(remaining)}
-					</strong>
-				</div>
-				{#if usedPct !== null}
-					<div class="progress-track">
-						<div
-							class="progress-bar"
-							class:over={usedPct > 100}
-							style="width: {Math.min(usedPct, 100)}%;"
-						></div>
-					</div>
-					<p class="summary-hint">{usedPct}% de tu ingreso está planeado</p>
+		<!-- Plan del ciclo: cuánto esperas recibir y cómo lo repartiste -->
+		<section class="summary-section">
+			<div class="section-head">
+				<h2 class="section-heading">Plan del ciclo</h2>
+				{#if !data.isCurrentMonth && expectedIncomeCents !== null}
+					<span class="section-caption">
+						Ingreso esperado
+						<strong>{formatMoney(expectedIncomeCents)}</strong>
+					</span>
 				{/if}
-			{:else}
+			</div>
+
+			<div class="plan-grid">
+				<div class="summary-item">
+					<span class="summary-label">Planeado para gastar</span>
+					<span class="summary-value">{formatMoney(summaryPlanned)}</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-label">Sin asignar</span>
+					{#if unassignedCents !== null}
+						<span
+							class="summary-value"
+							class:pending={unassignedCents > 0}
+							class:negative={unassignedCents < 0}
+						>
+							{formatMoney(unassignedCents)}
+						</span>
+					{:else}
+						<span class="summary-value muted">Sin definir</span>
+					{/if}
+				</div>
+			</div>
+
+			{#if unassignedCents !== null}
+				{#if unassignedCents > 0}
+					<p class="summary-hint pending-hint">
+						Puedes asignar este monto a una categoría o dejarlo como margen sin presupuestar.
+					</p>
+				{:else if unassignedCents === 0}
+					<p class="summary-hint">Presupuesto base cero: todo tu ingreso esperado está asignado.</p>
+				{:else}
+					<p class="summary-hint negative-hint">
+						Planeaste {formatMoney(Math.abs(unassignedCents))} más de lo que esperas recibir.
+					</p>
+				{/if}
+			{:else if data.isCurrentMonth}
 				<p class="summary-hint">
-					Escribe tu ingreso esperado del ciclo para ver cuánto te quedaría disponible.
+					Escribe el ingreso que esperas recibir para ver cuánto te queda sin asignar.
 				</p>
+			{:else}
+				<p class="summary-hint">Este ciclo no tiene un ingreso esperado guardado.</p>
 			{/if}
-		{:else}
-			<p class="summary-hint">
+		</section>
+
+		<!-- Ejecución real: gasto del ciclo contra el plan -->
+		<section class="summary-section">
+			<div class="section-head">
+				<h2 class="section-heading">Ejecución del mes</h2>
+				{#if summaryPlanned > 0}
+					<span class="section-caption" class:over={summaryDifference < 0}>
+						{spentPct}% del plan gastado
+					</span>
+				{/if}
+			</div>
+
+			<div class="execution-amounts">
+				<div class="summary-item">
+					<span class="summary-label">Gastado</span>
+					<span class="summary-value">{formatMoney(data.spentCents)}</span>
+				</div>
+				<div class="summary-item exec-right">
+					<span class="summary-label">Planeado</span>
+					<span class="summary-value muted">{formatMoney(summaryPlanned)}</span>
+				</div>
+			</div>
+
+			{#if summaryPlanned > 0}
+				<div class="progress-track">
+					<div
+						class="progress-bar"
+						class:over={summaryDifference < 0}
+						style="width: {Math.min(spentPct, 100)}%;"
+					></div>
+				</div>
+
+				<div class="execution-balance" class:over={summaryDifference < 0}>
+					<span>{summaryDifference >= 0 ? 'Disponible por gastar' : 'Excedido del plan'}</span>
+					<strong>{formatMoney(Math.abs(summaryDifference))}</strong>
+				</div>
+			{:else if data.spentCents > 0}
+				<p class="summary-hint">
+					No hay un presupuesto planeado en este ciclo, así que todo el gasto real aparece sin plan.
+				</p>
+			{:else}
+				<p class="summary-hint">Todavía no hay gasto real ni presupuesto planeado en este ciclo.</p>
+			{/if}
+
+			<div class="cashflow-row">
+				<div class="summary-item">
+					<span class="summary-label">Ingreso recibido</span>
+					<span class="cashflow-value">{formatMoney(data.realIncomeCents)}</span>
+				</div>
+				<div class="summary-item">
+					<span class="summary-label">Balance actual</span>
+					<span
+						class="cashflow-value"
+						class:positive={realBalanceCents >= 0}
+						class:negative={realBalanceCents < 0}
+					>
+						{formatMoney(realBalanceCents)}
+					</span>
+				</div>
+			</div>
+		</section>
+
+		{#if !data.isCurrentMonth}
+			<p class="summary-hint footnote">
 				Consulta histórica: se conservan las fechas, los importes y la clasificación aunque las
 				categorías estén ocultas.
 			</p>
@@ -565,8 +622,8 @@
 	{#if data.isCurrentMonth}
 		{#if !data.hasStoredBudget}
 			<div class="draft-hint card">
-				Aún no has guardado un presupuesto para este ciclo. Asigna montos y guarda para iniciar el
-				historial, o crea una propuesta desde el ciclo anterior.
+				Aún no has guardado un presupuesto para este ciclo. Asigna un límite de gasto a tus
+				categorías y guarda, o crea una propuesta desde el ciclo anterior.
 			</div>
 		{/if}
 
@@ -600,14 +657,14 @@
 				class="btn-secondary w-full"
 				disabled={!data.prevMonthHasBudget || proposing}
 			>
-				{proposing ? 'Proponiendo…' : `Proponer desde ${data.prevMonthLabel}`}
+				{proposing ? 'Creando propuesta…' : `Crear propuesta desde ${data.prevMonthLabel}`}
 			</button>
 			<p class="copy-hint">
-				Se crea una propuesta pendiente con las líneas visibles del último presupuesto confirmado.
-				Las categorías ocultas no se copian.
+				Crea un borrador con las líneas visibles de ese ciclo. No confirma nada ni crea movimientos;
+				las categorías ocultas no se copian.
 			</p>
 			{#if !data.prevMonthHasBudget}
-				<p class="copy-hint">No hay un presupuesto confirmado anterior para proponer.</p>
+				<p class="copy-hint">No hay un presupuesto confirmado anterior para copiar.</p>
 			{/if}
 		</form>
 
@@ -1392,6 +1449,13 @@
 	.summary-card {
 		padding: 1.25rem;
 		margin-bottom: 1.25rem;
+		--pending-text: var(--color-accent-700);
+	}
+
+	@media (prefers-color-scheme: dark) {
+		.summary-card {
+			--pending-text: var(--color-accent-300);
+		}
 	}
 
 	.income-field {
@@ -1407,20 +1471,49 @@
 		color: var(--app-text);
 	}
 
-	.summary-grid {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		margin-bottom: 0.875rem;
-
-		&.three {
-			grid-template-columns: repeat(3, minmax(0, 1fr));
+	.summary-section {
+		& + & {
+			margin-top: 1rem;
+			padding-top: 1rem;
+			border-top: 1px solid var(--app-border);
 		}
 	}
 
-	.income-summary {
-		padding-bottom: 0.875rem;
-		border-bottom: 1px dashed var(--input-bg);
+	.section-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.section-heading {
+		font-size: 0.875rem;
+		font-weight: 700;
+		letter-spacing: -0.01em;
+	}
+
+	.section-caption {
+		font-size: 0.75rem;
+		color: var(--app-text-secondary);
+		text-align: right;
+		line-height: 1.4;
+
+		strong {
+			color: var(--app-text);
+			font-variant-numeric: tabular-nums;
+			white-space: nowrap;
+		}
+
+		&.over {
+			color: var(--color-danger-500);
+		}
+	}
+
+	.plan-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
 	}
 
 	.summary-item {
@@ -1445,16 +1538,12 @@
 		letter-spacing: -0.01em;
 		overflow-wrap: anywhere;
 
-		&.planned {
-			color: var(--app-text);
-		}
-
-		&.positive {
-			color: var(--color-primary-600);
-		}
-
 		&.negative {
 			color: var(--color-danger-500);
+		}
+
+		&.pending {
+			color: var(--pending-text);
 		}
 
 		&.muted {
@@ -1462,19 +1551,57 @@
 		}
 	}
 
-	.income-line {
+	.execution-amounts {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.75rem;
+		margin-bottom: 0.5rem;
+	}
+
+	.exec-right {
+		align-items: flex-end;
+		text-align: right;
+	}
+
+	.execution-balance {
 		display: flex;
 		align-items: center;
 		justify-content: space-between;
 		gap: 0.5rem;
+		margin-top: 0.625rem;
+		padding: 0.5rem 0.75rem;
+		border-radius: var(--radius-md);
+		background: var(--color-primary-50);
+		color: var(--color-primary-700);
 		font-size: 0.8125rem;
-		color: var(--app-text-secondary);
-		margin-bottom: 0.5rem;
+		font-weight: 600;
+
+		strong {
+			font-size: 0.9375rem;
+			font-variant-numeric: tabular-nums;
+		}
+
+		&.over {
+			background: var(--color-danger-50);
+			color: var(--color-danger-600);
+		}
 	}
 
-	.income-line strong {
-		font-size: 0.9375rem;
+	.cashflow-row {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: 0.75rem;
+		margin-top: 0.875rem;
+		padding-top: 0.75rem;
+		border-top: 1px dashed var(--app-border);
+	}
+
+	.cashflow-value {
+		font-size: 0.875rem;
+		font-weight: 700;
 		font-variant-numeric: tabular-nums;
+		overflow-wrap: anywhere;
 
 		&.positive {
 			color: var(--color-primary-600);
@@ -1483,6 +1610,22 @@
 		&.negative {
 			color: var(--color-danger-500);
 		}
+	}
+
+	.pending-hint {
+		margin-top: 0.5rem;
+		color: var(--pending-text);
+	}
+
+	.negative-hint {
+		margin-top: 0.5rem;
+		color: var(--color-danger-500);
+	}
+
+	.footnote {
+		margin-top: 0.875rem;
+		padding-top: 0.75rem;
+		border-top: 1px dashed var(--app-border);
 	}
 
 	.progress-track {
@@ -2054,7 +2197,8 @@
 	}
 
 	@media (max-width: 360px) {
-		.summary-grid.three {
+		.plan-grid,
+		.cashflow-row {
 			grid-template-columns: 1fr;
 		}
 	}

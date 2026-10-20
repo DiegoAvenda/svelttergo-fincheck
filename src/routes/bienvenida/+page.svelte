@@ -33,7 +33,7 @@
 			class="form"
 		>
 			<div class="field">
-				<label for="monthlyIncome" class="label">Tu ingreso mensual aproximado</label>
+				<label for="monthlyIncome" class="label">Tu ingreso mensual de referencia</label>
 				<div class="input-wrapper">
 					<span class="currency-prefix">$</span>
 					<input

@@ -122,7 +122,7 @@
 				<div class="budget-empty-text">
 					<span class="budget-empty-title">Propuesta pendiente</span>
 					<span class="budget-empty-sub">
-						Revisa y confirma el presupuesto de este ciclo. Todavía no cuenta como confirmado.
+						Revisa los importes y confírmala para que cuente como presupuesto de este ciclo.
 					</span>
 				</div>
 				<span class="chevron" aria-hidden="true">›</span>
@@ -130,10 +130,10 @@
 		{:else if !data.budgetSummary.hasBudget}
 			<a href="/presupuesto" class="budget-empty card">
 				<div class="budget-empty-text">
-					<span class="budget-empty-title">Planea tus gastos del ciclo</span>
+					<span class="budget-empty-title">Planea tu gasto del ciclo</span>
 					<span class="budget-empty-sub">
-						Asigna cuánto piensas gastar por categoría y mira cuánto de tu ingreso esperado te
-						quedaría.
+						Asigna un límite de gasto por categoría y mira qué margen te quedaría de tu ingreso
+						esperado.
 					</span>
 				</div>
 				<span class="chevron">›</span>
@@ -149,11 +149,11 @@
 					</span>
 				</div>
 				<div class="budget-row">
-					<span class="budget-label">Planeado</span>
+					<span class="budget-label">Gasto planeado</span>
 					<span class="budget-value">{formatMoney(data.budgetSummary.plannedCents)}</span>
 				</div>
 				<div class="budget-row">
-					<span class="budget-label">Te quedaría del esperado</span>
+					<span class="budget-label">Margen del plan</span>
 					{#if data.budgetSummary.remainingCents === null}
 						<span class="budget-value muted">—</span>
 					{:else}
@@ -178,7 +178,7 @@
 				{/if}
 
 				<span class="budget-foot">
-					{data.budgetSummary.linesCount} categorías planeadas · toca para editar
+					{data.budgetSummary.linesCount} categorías con límite · toca para editar
 				</span>
 			</a>
 		{/if}

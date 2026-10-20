@@ -40,7 +40,7 @@ export const actions = {
 		if (incomeStr) {
 			monthlyIncomeCents = parseAmountToCents(incomeStr);
 			if (monthlyIncomeCents === null || monthlyIncomeCents < 0) {
-				return fail(400, { error: 'El ingreso mensual aproximado no es válido.' });
+				return fail(400, { error: 'El ingreso mensual de referencia no es válido.' });
 			}
 		}
 

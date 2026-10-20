@@ -136,7 +136,7 @@
 			<h2 class="section-title">Preferencias de cálculo</h2>
 
 			<div class="field">
-				<label for="monthlyIncome" class="field-label">Ingreso mensual aproximado ($ MXN)</label>
+				<label for="monthlyIncome" class="field-label">Ingreso mensual de referencia ($ MXN)</label>
 				<input
 					type="text"
 					inputmode="decimal"
@@ -147,8 +147,8 @@
 					class="input-field"
 				/>
 				<span class="field-hint"
-					>Referencia general para calcular el % de ingresos de cada hábito. El ingreso esperado de
-					cada ciclo se define en Presupuesto y no crea ingresos reales.</span
+					>Este monto es solo una referencia para calcular el % de ingresos de cada hábito. El
+					ingreso esperado de cada ciclo se define en Presupuesto y no crea ingresos reales.</span
 				>
 			</div>
 
@@ -160,8 +160,9 @@
 					<option value="variable">Variables</option>
 				</select>
 				<span class="field-hint"
-					>Se usa para proponer el ingreso esperado del siguiente ciclo. Si son variables, no se
-					precarga: solo se muestra el ingreso real anterior como referencia.</span
+					>Sirve para decidir si la propuesta del siguiente ciclo precarga el ingreso esperado. Con
+					ingresos variables no se precarga: solo se muestra el ingreso real anterior como
+					referencia.</span
 				>
 			</div>
 
@@ -173,7 +174,7 @@
 					bind:value={monthStartDay}
 					class="input-field"
 				>
-					{#each Array.from({ length: 28 }, (_, i) => i + 1) as day}
+					{#each Array.from({ length: 28 }, (_, i) => i + 1) as day (day)}
 						<option value={day}>Día {day} de cada mes</option>
 					{/each}
 				</select>
