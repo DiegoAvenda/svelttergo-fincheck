@@ -153,7 +153,7 @@
 					<span class="budget-value">{formatMoney(data.budgetSummary.plannedCents)}</span>
 				</div>
 				<div class="budget-row">
-					<span class="budget-label">Margen del plan</span>
+					<span class="budget-label">Sin asignar</span>
 					{#if data.budgetSummary.remainingCents === null}
 						<span class="budget-value muted">—</span>
 					{:else}

@@ -164,6 +164,7 @@
 							</button>
 						</form>
 
+						{#if parent.isCustom}
 						<!-- Ocultar -->
 						<form method="post" action="?/toggleHidden" use:enhance>
 							<input type="hidden" name="id" value={parent.id} />
@@ -202,6 +203,7 @@
 								{/if}
 							</button>
 						</form>
+						{/if}
 
 						{#if parent.isCustom}
 							<!-- Editar nombre -->
