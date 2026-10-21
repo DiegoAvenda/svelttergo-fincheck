@@ -5,6 +5,7 @@
 	<title>Exportar movimientos — contlana</title>
 </svelte:head>
 
+<!-- TODO: mejorar la exportación Excel y ocultar temporalmente -->
 <div class="export-page">
 	<div class="top-bar">
 		<a href="/ajustes" class="back-link" aria-label="Volver a ajustes">

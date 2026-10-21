@@ -97,6 +97,65 @@
 		!onlyTotal && items.length > 0 && Math.abs(sumItemsPesos - totalParsed) > 0.5
 	);
 
+	function compressImage(file) {
+		return new Promise((resolve, reject) => {
+			if (!file.type.startsWith('image/')) {
+				resolve(file);
+				return;
+			}
+			const img = new Image();
+			img.onload = () => {
+				const canvas = document.createElement('canvas');
+				const maxWidth = 1600;
+				const maxHeight = 1200;
+				let width = img.width;
+				let height = img.height;
+				if (width > maxWidth) {
+					height = (maxWidth / width) * height;
+					width = maxWidth;
+				}
+				if (height > maxHeight) {
+					width = (maxHeight / height) * width;
+					height = maxHeight;
+				}
+				canvas.width = width;
+				canvas.height = height;
+				const ctx = canvas.getContext('2d');
+				ctx.drawImage(img, 0, 0, width, height);
+				canvas.toBlob(
+					(blob) => {
+						if (!blob) {
+							resolve(file);
+							return;
+						}
+						if (blob.size > 3 * 1024 * 1024) {
+							const quality = Math.max(0.5, 0.7 * (3 * 1024 * 1024 / blob.size));
+							canvas.toBlob(
+								(finalBlob) => {
+									if (!finalBlob) {
+										resolve(file);
+									} else {
+										resolve(new File([finalBlob], file.name, { type: 'image/jpeg' }));
+									}
+								},
+								'image/jpeg',
+								quality
+							);
+						} else {
+							resolve(new File([blob], file.name, { type: 'image/jpeg' }));
+						}
+					},
+					'image/jpeg',
+					0.8
+				);
+			};
+			img.onerror = () => {
+				resolve(file);
+			};
+			img.src = URL.createObjectURL(file);
+		});
+	}
+
 	function resetToCapture() {
 		state = 'capturar';
 		form = null;
@@ -116,8 +175,19 @@
 	function handleFileChange(e) {
 		const file = e.target.files?.[0];
 		if (!file || file.size === 0) return;
-		isUploading = true;
-		e.target.form?.requestSubmit();
+
+		// Comprimir/redimensionar automáticamente antes de subir para evitar 413 en Vercel (límite 4.5 MB)
+		compressImage(file).then((compressedFile) => {
+			const dataTransfer = new DataTransfer();
+			dataTransfer.items.add(compressedFile);
+			e.target.files = dataTransfer.files;
+			isUploading = true;
+			e.target.form?.requestSubmit();
+		}).catch((err) => {
+			console.error('[escanear] Error al comprimir imagen:', err);
+			isUploading = true;
+			e.target.form?.requestSubmit();
+		});
 	}
 
 	/**

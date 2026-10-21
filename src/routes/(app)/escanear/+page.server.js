@@ -82,11 +82,11 @@ export const actions = {
 			});
 		}
 
-		// Validar tamaño máximo (~8 MB)
-		const MAX_SIZE = 8 * 1024 * 1024;
+		// Validar tamaño máximo (~3.5 MB para respetar límite de Vercel 4.5 MB con overhead)
+		const MAX_SIZE = 3.5 * 1024 * 1024;
 		if (file.size > MAX_SIZE) {
 			return fail(400, {
-				error: 'La imagen excede el límite de 8 MB. Intenta tomar una foto con menor resolución.'
+				error: 'La imagen excede el límite de 3.5 MB. Intenta tomar una foto con menor resolución o deja que la app la comprima automáticamente.'
 			});
 		}
 
