@@ -1,4 +1,3 @@
-import { dev } from '$app/environment';
 import {
 	sumIncomeInRange,
 	sumExpensesInRange,
@@ -14,14 +13,7 @@ import {
 	resolveCurrentPeriod
 } from '$lib/server/repos/budgets.js';
 import { getSettings } from '$lib/server/repos/settings.js';
-import {
-	currentMonthKey,
-	formatPeriodLabel,
-	getMonthRangeByKey,
-	isValidMonthKey,
-	monthKeyLabel,
-	shiftMonthKey
-} from '$lib/utils/periods.js';
+import { currentMonthKey, formatPeriodLabel, monthKeyLabel } from '$lib/utils/periods.js';
 import { pctOf, pctOfNullable } from '$lib/utils/spending-math.js';
 import {
 	sumPlannedCents,
@@ -37,42 +29,27 @@ export const load = async (event) => {
 
 	const settings = await getSettings(userId);
 
-	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` hace que esta
-	// pantalla crea que ese es el mes actual. No cambia datos ni el reloj y en
-	// producción se ignora por completo.
-	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
-	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
-
 	let current = await resolveCurrentPeriod(userId);
-	const previewMode = !!previewKey && previewKey !== current.monthKey;
 
-	if (!previewMode) {
-		// El presupuesto legacy (sin mes) pasa al ciclo actual y se completan
-		// los límites de los presupuestos anteriores al modelo de ciclos.
-		await migrateLegacyBudgets(userId, currentMonthKey());
-		await migrateBudgetPeriods(userId);
-		current = await resolveCurrentPeriod(userId);
-	}
+	// El presupuesto legacy (sin mes) pasa al ciclo actual y se completan
+	// los límites de los presupuestos anteriores al modelo de ciclos.
+	await migrateLegacyBudgets(userId, currentMonthKey());
+	await migrateBudgetPeriods(userId);
+	current = await resolveCurrentPeriod(userId);
 
-	const realCurrentKey = current.monthKey;
-	const currentKey = previewKey || realCurrentKey;
+	const currentKey = current.monthKey;
 	const budget = await getBudget(userId, currentKey);
 
 	// Límites reales del ciclo: los guardados mandan en el historial. Si el
-	// presupuesto no tiene fechas (legacy) se usa el ciclo resuelto o el
-	// cálculo estándar.
+	// presupuesto no tiene fechas (legacy) se usa el ciclo resuelto.
 	let start;
 	let end;
 	if (budget?.periodStart instanceof Date && budget?.periodEndExclusive instanceof Date) {
 		start = budget.periodStart;
 		end = budget.periodEndExclusive;
-	} else if (currentKey === realCurrentKey) {
+	} else {
 		start = current.start;
 		end = current.end;
-	} else {
-		const range = getMonthRangeByKey(currentKey);
-		start = range.start;
-		end = range.end;
 	}
 	const monthLabel = monthKeyLabel(currentKey);
 	const periodRangeLabel = formatPeriodLabel(start, end);

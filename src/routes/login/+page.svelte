@@ -107,7 +107,7 @@
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		box-shadow: 0 8px 16px -4px rgba(34, 135, 76, 0.3);
+		box-shadow: 0 8px 16px -4px rgba(59, 130, 246, 0.3);
 	}
 
 	.title {

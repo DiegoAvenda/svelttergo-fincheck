@@ -41,7 +41,7 @@
 		background: var(--color-primary-500);
 		color: white;
 		border-radius: var(--radius-md);
-		box-shadow: 0 4px 10px -4px rgba(34, 135, 76, 0.55);
+		box-shadow: 0 4px 10px -4px rgba(59, 130, 246, 0.55);
 	}
 
 	.brand-mark svg {
