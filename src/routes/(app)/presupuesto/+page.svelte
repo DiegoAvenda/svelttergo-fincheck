@@ -297,10 +297,6 @@
 		if (typeof window === 'undefined') return;
 		const url = new URL(window.location.href);
 		url.searchParams.set('month', monthKey);
-		// En modo prueba se conserva el mes simulado al navegar por el historial.
-		if (data.preview?.mode && data.preview.monthKey) {
-			url.searchParams.set('previewMonth', data.preview.monthKey);
-		}
 		window.location.assign(url.toString());
 	}
 </script>
@@ -316,24 +312,6 @@
 			Planea tu gasto por ciclo y compáralo con lo real. Ciclos anteriores: solo lectura.
 		</p>
 	</header>
-
-	{#if data.preview?.mode}
-		<div class="preview-banner card">
-			<p class="preview-banner-title">Modo prueba (solo dev) · viendo {data.monthLabel}</p>
-			<p class="preview-banner-desc">
-				Solo lectura: no se guardan ni copian presupuestos. El mes real no se modifica.
-			</p>
-			<div class="preview-banner-actions">
-				<form method="get" action="/presupuesto">
-					<input type="hidden" name="previewMonth" value={data.preview.nextMonthKey} />
-					<button type="submit" class="btn-secondary">Avanzar otro mes</button>
-				</form>
-				<form method="get" action="/presupuesto">
-					<button type="submit" class="btn-secondary">Volver al mes real</button>
-				</form>
-			</div>
-		</div>
-	{/if}
 
 	<!-- Navegación mensual -->
 	<div class="month-nav card">
@@ -1222,41 +1200,6 @@
 		color: var(--app-text-secondary);
 		margin-top: 0.25rem;
 		line-height: 1.5;
-	}
-
-	.preview-banner {
-		padding: 0.875rem 1rem;
-		margin-bottom: 1.25rem;
-		border-style: dashed;
-		background: var(--input-bg);
-	}
-
-	.preview-banner-title {
-		font-size: 0.8125rem;
-		font-weight: 700;
-	}
-
-	.preview-banner-desc {
-		margin-top: 0.25rem;
-		font-size: 0.75rem;
-		line-height: 1.5;
-		color: var(--app-text-secondary);
-	}
-
-	.preview-banner-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin-top: 0.75rem;
-	}
-
-	.preview-banner-actions form {
-		margin: 0;
-	}
-
-	.preview-banner-actions button {
-		padding: 0.4375rem 0.75rem;
-		font-size: 0.8125rem;
 	}
 
 	.month-nav {

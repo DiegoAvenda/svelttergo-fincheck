@@ -29,13 +29,11 @@ export const load = async (event) => {
 
 	const settings = await getSettings(userId);
 
-	let current = await resolveCurrentPeriod(userId);
-
 	// El presupuesto legacy (sin mes) pasa al ciclo actual y se completan
 	// los límites de los presupuestos anteriores al modelo de ciclos.
 	await migrateLegacyBudgets(userId, currentMonthKey());
 	await migrateBudgetPeriods(userId);
-	current = await resolveCurrentPeriod(userId);
+	const current = await resolveCurrentPeriod(userId);
 
 	const currentKey = current.monthKey;
 	const budget = await getBudget(userId, currentKey);
@@ -74,8 +72,6 @@ export const load = async (event) => {
 	// presupuesto todavía no tiene uno guardado. El historial nunca lo usa.
 	let budgetIncomeCents = budget?.plannedIncomeCents ?? null;
 	if (
-		!previewMode &&
-		currentKey === realCurrentKey &&
 		budgetStatus !== 'draft' &&
 		settings?.incomeType !== 'variable' &&
 		budgetIncomeCents === null
@@ -147,14 +143,7 @@ export const load = async (event) => {
 		topCategories,
 		budgetSummary,
 		recentMovements: serializedRecent,
-		createdNotice: createdId ? { id: createdId, type: createdType } : null,
-		// Solo dev: datos para el control de simulación de mes.
-		preview: dev
-			? {
-					monthKey: previewMode ? previewKey : null,
-					nextMonthKey: shiftMonthKey(previewKey || realCurrentKey, 1)
-				}
-			: null
+		createdNotice: createdId ? { id: createdId, type: createdType } : null
 	};
 };
 

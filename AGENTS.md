@@ -361,11 +361,6 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
   `src/lib/server/analytics/spending-by-subcategory.js`. La comparación contra lo
   real se arma en `presupuesto/+page.server.js` (por categoría con
   `getSpendingByCategory` y por subcategoría con la anterior).
-- **Simulador de mes (solo dev)**: `?previewMonth=YYYY-MM` en Inicio y
-  Presupuesto hace que esas pantallas traten ese mes como el actual. El mes
-  simulado es de **solo lectura** (`isCurrentMonth` se fuerza a `false`) y no se
-  ejecutan migraciones ni escrituras. En producción el parámetro se ignora. No
-  cambia el reloj ni los datos; la captura sigue usando la fecha real.
 
 ## Tests
 

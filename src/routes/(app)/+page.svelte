@@ -14,39 +14,6 @@
 </svelte:head>
 
 <div class="home-page">
-	<!-- Moderador de pruebas (solo dev): simula el inicio de otro mes -->
-	{#if data.preview}
-		<div class="dev-preview card">
-			<p class="dev-preview-title">
-				Modo prueba (solo dev)
-				{#if data.preview.monthKey}
-					· viendo <strong>{data.monthLabel}</strong>
-				{/if}
-			</p>
-			<p class="dev-preview-desc">
-				Simula el inicio de otro mes para ver cómo se comporta la app. No guarda, copia ni borra
-				datos; la captura sigue usando la fecha real.
-			</p>
-			<div class="dev-preview-actions">
-				<form method="get" action="/">
-					<input type="hidden" name="previewMonth" value={data.preview.nextMonthKey} />
-					<button type="submit" class="btn-secondary">
-						{data.preview.monthKey ? 'Avanzar otro mes' : 'Ver nuevo mes'}
-					</button>
-				</form>
-				{#if data.preview.monthKey}
-					<form method="get" action="/presupuesto">
-						<input type="hidden" name="previewMonth" value={data.preview.monthKey} />
-						<button type="submit" class="btn-secondary">Ver presupuesto del mes</button>
-					</form>
-					<form method="get" action="/">
-						<button type="submit" class="btn-secondary">Volver al mes real</button>
-					</form>
-				{/if}
-			</div>
-		</div>
-	{/if}
-
 	<!-- Aviso de movimiento creado con Deshacer / Editar -->
 	{#if data.createdNotice && !noticeDismissed && !form?.undone}
 		<div class="created-toast card">
@@ -321,42 +288,6 @@
 <style>
 	.home-page {
 		padding-top: 0.5rem;
-	}
-
-	.dev-preview {
-		padding: 0.875rem 1rem;
-		margin-bottom: 1.25rem;
-		border-style: dashed;
-		background: var(--input-bg);
-	}
-
-	.dev-preview-title {
-		font-size: 0.8125rem;
-		font-weight: 700;
-		color: var(--app-text);
-	}
-
-	.dev-preview-desc {
-		margin-top: 0.25rem;
-		font-size: 0.75rem;
-		line-height: 1.5;
-		color: var(--app-text-secondary);
-	}
-
-	.dev-preview-actions {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.5rem;
-		margin-top: 0.75rem;
-	}
-
-	.dev-preview-actions form {
-		margin: 0;
-	}
-
-	.dev-preview-actions button {
-		padding: 0.4375rem 0.75rem;
-		font-size: 0.8125rem;
 	}
 
 	.created-toast {

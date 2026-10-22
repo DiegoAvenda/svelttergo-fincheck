@@ -1,4 +1,3 @@
-import { dev } from '$app/environment';
 import { fail } from '@sveltejs/kit';
 import { ObjectId } from 'mongodb';
 import { getCategoriesByUser } from '$lib/server/repos/categories.js';
@@ -91,25 +90,14 @@ export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const settings = await getSettings(userId);
 
-	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` muestra ese mes
-	// como si fuera el actual, en solo lectura. No escribe datos; en producción
-	// se ignora por completo.
-	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
-	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
-
-	let current = await resolveCurrentPeriod(userId);
-	const previewMode = !!previewKey && previewKey !== current.monthKey;
-
-	if (!previewMode) {
-		// El presupuesto legacy (sin mes) pasa al ciclo actual; luego se
-		// completan los límites explícitos de los presupuestos existentes.
-		await migrateLegacyBudgets(userId, currentMonthKey());
-		await migrateBudgetPeriods(userId);
-		current = await resolveCurrentPeriod(userId);
-	}
+	// El presupuesto legacy (sin mes) pasa al ciclo actual; luego se
+	// completan los límites explícitos de los presupuestos existentes.
+	await migrateLegacyBudgets(userId, currentMonthKey());
+	await migrateBudgetPeriods(userId);
+	const current = await resolveCurrentPeriod(userId);
 
 	const realCurrentKey = current.monthKey;
-	const currentKey = previewKey || realCurrentKey;
+	const currentKey = realCurrentKey;
 
 	const [categories, usage, earliestBudgetMonth, earliestMovementDate] = await Promise.all([
 		getCategoriesByUser(userId),
@@ -133,21 +121,21 @@ export const load = async (event) => {
 	if (monthKey > currentKey) monthKey = currentKey;
 	if (monthKey < minMonthKey) monthKey = minMonthKey;
 
-	// En modo prueba el mes simulado es siempre de solo lectura.
-	const isCurrentMonth = !previewMode && monthKey === realCurrentKey;
+	// El ciclo actual es el único editable; los anteriores son de solo lectura.
+	const isCurrentMonth = monthKey === realCurrentKey;
 
 	let budgetDoc = await getBudget(userId, monthKey);
 
 	// Límites reales del periodo: si el presupuesto guardado tiene fechas, se
-	// usan esas (historial inmutable). Si no, el ciclo actual resuelto o el
-	// cálculo estándar con la configuración vigente.
+	// usan esas (historial inmutable). Si no, el ciclo actual resuelto o el mes
+	// calendario de la clave.
 	const storedStart = budgetDoc?.periodStart instanceof Date ? budgetDoc.periodStart : null;
 	const storedEnd =
 		budgetDoc?.periodEndExclusive instanceof Date ? budgetDoc.periodEndExclusive : null;
 	let range;
 	if (storedStart && storedEnd) {
 		range = { start: storedStart, end: storedEnd };
-	} else if (!previewMode && monthKey === realCurrentKey) {
+	} else if (monthKey === realCurrentKey) {
 		range = { start: current.start, end: current.end };
 	} else {
 		range = getMonthRangeByKey(monthKey);
@@ -167,8 +155,7 @@ export const load = async (event) => {
 	// importes y no cambia la clasificación de periodos anteriores.
 	let budget = budgetDoc;
 	let budgetLines = budget?.lines;
-	// En modo prueba no se migran ni escriben líneas: la vista es solo lectura.
-	if (!previewMode && budget) {
+	if (budget) {
 		const migratedLines = await migrateLegacyBudgetLines(userId, budgetLines);
 		if (migratedLines) {
 			await setBudget(userId, monthKey, {
@@ -532,14 +519,6 @@ export const load = async (event) => {
 		status,
 		isDraft,
 		replacedConfirmed,
-		// Solo dev: datos para el banner de simulación de mes.
-		preview: dev
-			? {
-					mode: previewMode,
-					monthKey: previewMode ? previewKey : null,
-					nextMonthKey: shiftMonthKey(previewMode ? previewKey : realCurrentKey, 1)
-				}
-			: null,
 		prevMonthKey,
 		nextMonthKey: shiftMonthKey(monthKey, 1),
 		canGoPrev: monthKey > minMonthKey,
