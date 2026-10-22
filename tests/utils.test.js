@@ -8,14 +8,9 @@ import {
 	parseAmountToCents
 } from '../src/lib/utils/money.js';
 
-import {
-	normalizeDescription
-} from '../src/lib/utils/normalize-description.js';
+import { normalizeDescription } from '../src/lib/utils/normalize-description.js';
 
-import {
-	normalizeTicketItems,
-	isDiscountLine
-} from '../src/lib/utils/ticket-items.js';
+import { normalizeTicketItems, isDiscountLine } from '../src/lib/utils/ticket-items.js';
 
 import {
 	getMonthRange,
@@ -93,38 +88,35 @@ test('Period calculation with Mexico City timezone and start day', async (t) => 
 		assert.ok(!isNaN(today.getTime()));
 	});
 
-	await t.test('getMonthRange with monthStartDay = 1', () => {
+	await t.test('getMonthRange cubre el mes calendario completo', () => {
 		const refDate = new Date(Date.UTC(2026, 4, 15)); // 15 de mayo de 2026
-		const range = getMonthRange(refDate, 1);
+		const range = getMonthRange(refDate);
 
 		assert.equal(range.start.toISOString(), '2026-05-01T00:00:00.000Z');
 		assert.equal(range.end.toISOString(), '2026-06-01T00:00:00.000Z');
 	});
 
-	await t.test('getMonthRange with custom monthStartDay = 15', () => {
-		// Día 20 de mayo (después del día 15): periodo va del 15 de mayo al 15 de junio
-		const refDate1 = new Date(Date.UTC(2026, 4, 20));
-		const range1 = getMonthRange(refDate1, 15);
-		assert.equal(range1.start.toISOString(), '2026-05-15T00:00:00.000Z');
-		assert.equal(range1.end.toISOString(), '2026-06-15T00:00:00.000Z');
+	await t.test('getMonthRange incluye el último día natural en meses cortos', () => {
+		const feb = getMonthRange(new Date(Date.UTC(2028, 1, 10))); // febrero bisiesto
+		assert.equal(feb.start.toISOString(), '2028-02-01T00:00:00.000Z');
+		assert.equal(feb.end.toISOString(), '2028-03-01T00:00:00.000Z');
+		assert.equal(new Date(feb.end.getTime() - 86400000).toISOString(), '2028-02-29T00:00:00.000Z');
 
-		// Día 10 de mayo (antes del día 15): periodo va del 15 de abril al 15 de mayo
-		const refDate2 = new Date(Date.UTC(2026, 4, 10));
-		const range2 = getMonthRange(refDate2, 15);
-		assert.equal(range2.start.toISOString(), '2026-04-15T00:00:00.000Z');
-		assert.equal(range2.end.toISOString(), '2026-05-15T00:00:00.000Z');
+		const apr = getMonthRange(new Date(Date.UTC(2026, 3, 30)));
+		assert.equal(apr.start.toISOString(), '2026-04-01T00:00:00.000Z');
+		assert.equal(apr.end.toISOString(), '2026-05-01T00:00:00.000Z');
 	});
 
 	await t.test('getPreviousMonthRange returns immediate prior month range', () => {
 		const refDate = new Date(Date.UTC(2026, 4, 15)); // Mayo 2026
-		const prev = getPreviousMonthRange(refDate, 1);
+		const prev = getPreviousMonthRange(refDate);
 		assert.equal(prev.start.toISOString(), '2026-04-01T00:00:00.000Z');
 		assert.equal(prev.end.toISOString(), '2026-05-01T00:00:00.000Z');
 	});
 
 	await t.test('getLastNMonthsRange returns correct 3-month window', () => {
 		const refDate = new Date(Date.UTC(2026, 4, 15)); // Mayo 2026
-		const range = getLastNMonthsRange(refDate, 3, 1);
+		const range = getLastNMonthsRange(refDate, 3);
 		assert.equal(range.start.toISOString(), '2026-03-01T00:00:00.000Z');
 		assert.equal(range.end.toISOString(), '2026-06-01T00:00:00.000Z');
 	});
@@ -136,7 +128,10 @@ test('Period calculation with Mexico City timezone and start day', async (t) => 
 		};
 		const comp = getComparisonRange(range);
 		assert.equal(comp.end.getTime(), range.start.getTime());
-		assert.equal(comp.end.getTime() - comp.start.getTime(), range.end.getTime() - range.start.getTime());
+		assert.equal(
+			comp.end.getTime() - comp.start.getTime(),
+			range.end.getTime() - range.start.getTime()
+		);
 	});
 
 	await t.test('formatDayGroup identifies Hoy, Ayer, or returns formatted date', () => {
@@ -177,14 +172,17 @@ test('Ticket discount merging (rebajas no son items)', async (t) => {
 		assert.equal(result[0].amount, 18);
 	});
 
-	await t.test('la rebaja con -4.00 explicito siempre descuenta aunque amount repita el final', () => {
-		const result = normalizeTicketItems([
-			{ originalDescription: 'SABRITAS 45G', amount: 18, status: 'identified' },
-			{ originalDescription: 'Rebaja 1X$14 -4.00 x 1', amount: 18, status: 'identified' }
-		]);
-		assert.equal(result.length, 1);
-		assert.equal(result[0].amount, 14);
-	});
+	await t.test(
+		'la rebaja con -4.00 explicito siempre descuenta aunque amount repita el final',
+		() => {
+			const result = normalizeTicketItems([
+				{ originalDescription: 'SABRITAS 45G', amount: 18, status: 'identified' },
+				{ originalDescription: 'Rebaja 1X$14 -4.00 x 1', amount: 18, status: 'identified' }
+			]);
+			assert.equal(result.length, 1);
+			assert.equal(result[0].amount, 14);
+		}
+	);
 
 	await t.test('descarta encabezados y totales aunque la IA los incluya', () => {
 		const result = normalizeTicketItems([

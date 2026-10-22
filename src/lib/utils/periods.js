@@ -14,43 +14,17 @@ export function todayInMX() {
 }
 
 /**
- * Retorna el rango de fechas [start, end) para un mes dado, usando monthStartDay.
- * Si monthStartDay = 1 (por defecto), el mes va del 1 al 1 del siguiente.
- * Si monthStartDay = 15, el mes va del 15 al 15 del siguiente.
+ * Retorna el rango de fechas [start, end) del mes calendario de `referenceDate`.
+ * El ciclo siempre empieza el día 1 y termina el día 1 del mes siguiente
+ * (fin exclusivo), es decir, el último día natural del mes queda incluido.
  * @param {Date} referenceDate - Fecha de referencia (en zona MX)
- * @param {number} monthStartDay - Día de inicio del mes (1-28)
  * @returns {{ start: Date, end: Date, label: string }}
  */
-export function getMonthRange(referenceDate, monthStartDay = 1) {
+export function getMonthRange(referenceDate) {
 	const year = referenceDate.getUTCFullYear();
 	const month = referenceDate.getUTCMonth();
-	const day = referenceDate.getUTCDate();
-
-	let startYear, startMonth;
-
-	if (day >= monthStartDay) {
-		startYear = year;
-		startMonth = month;
-	} else {
-		// Estamos antes del inicio del periodo, retrocedemos un mes
-		if (month === 0) {
-			startYear = year - 1;
-			startMonth = 11;
-		} else {
-			startYear = year;
-			startMonth = month - 1;
-		}
-	}
-
-	const start = new Date(Date.UTC(startYear, startMonth, monthStartDay));
-
-	let endMonth = startMonth + 1;
-	let endYear = startYear;
-	if (endMonth > 11) {
-		endMonth = 0;
-		endYear += 1;
-	}
-	const end = new Date(Date.UTC(endYear, endMonth, monthStartDay));
+	const start = new Date(Date.UTC(year, month, 1));
+	const end = new Date(Date.UTC(year, month + 1, 1));
 
 	const label = start.toLocaleDateString('es-MX', {
 		month: 'long',
@@ -64,31 +38,28 @@ export function getMonthRange(referenceDate, monthStartDay = 1) {
 /**
  * Retorna el rango del mes anterior al mes actual.
  * @param {Date} referenceDate
- * @param {number} monthStartDay
  * @returns {{ start: Date, end: Date, label: string }}
  */
-export function getPreviousMonthRange(referenceDate, monthStartDay = 1) {
-	const current = getMonthRange(referenceDate, monthStartDay);
+export function getPreviousMonthRange(referenceDate) {
+	const current = getMonthRange(referenceDate);
 	// Retrocedemos un día antes del inicio del mes actual
 	const dayBefore = new Date(current.start.getTime() - 86400000);
-	return getMonthRange(dayBefore, monthStartDay);
+	return getMonthRange(dayBefore);
 }
 
 /**
  * Retorna un rango de N meses hacia atrás.
  * @param {Date} referenceDate
  * @param {number} months - Número de meses
- * @param {number} monthStartDay
  * @returns {{ start: Date, end: Date, label: string }}
  */
-export function getLastNMonthsRange(referenceDate, months, monthStartDay = 1) {
-	const current = getMonthRange(referenceDate, monthStartDay);
+export function getLastNMonthsRange(referenceDate, months) {
+	const current = getMonthRange(referenceDate);
 	let start = current.start;
 
 	for (let i = 1; i < months; i++) {
 		const dayBefore = new Date(start.getTime() - 86400000);
-		const prev = getMonthRange(dayBefore, monthStartDay);
-		start = prev.start;
+		start = getMonthRange(dayBefore).start;
 	}
 
 	const label = `Últimos ${months} meses`;
@@ -98,20 +69,19 @@ export function getLastNMonthsRange(referenceDate, months, monthStartDay = 1) {
 /**
  * Obtiene el rango de periodo dado un nombre de periodo.
  * @param {'this-month' | 'last-month' | 'last-3-months'} period
- * @param {number} monthStartDay
  * @returns {{ start: Date, end: Date, label: string }}
  */
-export function getPeriodRange(period, monthStartDay = 1) {
+export function getPeriodRange(period) {
 	const today = todayInMX();
 
 	switch (period) {
 		case 'last-month':
-			return getPreviousMonthRange(today, monthStartDay);
+			return getPreviousMonthRange(today);
 		case 'last-3-months':
-			return getLastNMonthsRange(today, 3, monthStartDay);
+			return getLastNMonthsRange(today, 3);
 		case 'this-month':
 		default:
-			return getMonthRange(today, monthStartDay);
+			return getMonthRange(today);
 	}
 }
 
@@ -125,42 +95,27 @@ export function isValidMonthKey(monthKey) {
 }
 
 /**
- * Clave canónica `YYYY-MM` del mes contable que contiene `referenceDate`.
- * Respeta `monthStartDay`: si el día es anterior al inicio del mes contable,
- * el mes corresponde al calendario anterior.
- * @param {Date} referenceDate
- * @param {number} [monthStartDay]
- * @returns {string}
- */
-export function monthKeyFromDate(referenceDate, monthStartDay = 1) {
-	const { start } = getMonthRange(referenceDate, monthStartDay);
-	return `${start.getUTCFullYear()}-${String(start.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-/**
- * Clave del mes contable actual en CDMX.
- * @param {number} [monthStartDay]
+ * Clave del mes actual en CDMX.
  * @param {Date} [referenceDate] - Inyectable para pruebas.
  * @returns {string}
  */
-export function currentMonthKey(monthStartDay = 1, referenceDate = todayInMX()) {
-	return monthKeyFromDate(referenceDate, monthStartDay);
+export function currentMonthKey(referenceDate = todayInMX()) {
+	return monthKeyOfDate(referenceDate);
 }
 
 /**
- * Rango de fechas [start, end) de una clave de mes contable `YYYY-MM`.
+ * Rango de fechas [start, end) de una clave de mes `YYYY-MM`.
  * @param {string} monthKey
- * @param {number} [monthStartDay]
  * @returns {{ start: Date, end: Date, label: string }}
  */
-export function getMonthRangeByKey(monthKey, monthStartDay = 1) {
+export function getMonthRangeByKey(monthKey) {
 	if (!isValidMonthKey(monthKey)) {
 		throw new Error(`Mes inválido: ${monthKey}`);
 	}
 
 	const [year, month] = monthKey.split('-').map(Number);
-	const start = new Date(Date.UTC(year, month - 1, monthStartDay));
-	const end = new Date(Date.UTC(year, month, monthStartDay));
+	const start = new Date(Date.UTC(year, month - 1, 1));
+	const end = new Date(Date.UTC(year, month, 1));
 	const label = start.toLocaleDateString('es-MX', {
 		month: 'long',
 		year: 'numeric',
@@ -171,108 +126,12 @@ export function getMonthRangeByKey(monthKey, monthStartDay = 1) {
 }
 
 /**
- * Valida el día de inicio del ciclo. La app solo admite 1–28 para evitar
- * fechas inexistentes en febrero y meses cortos.
- * @param {number} day
- * @returns {boolean}
- */
-export function isValidStartDay(day) {
-	return Number.isInteger(day) && day >= 1 && day <= 28;
-}
-
-/**
- * Clave `YYYY-MM` del mes calendario de una fecha, sin aplicar `monthStartDay`.
- * Para un periodo de transición (p. ej. 1 nov – 15 dic) la clave es el mes en
- * que inicia el periodo, no el mes contable que resultaría del nuevo día.
+ * Clave `YYYY-MM` del mes calendario de una fecha.
  * @param {Date} date
  * @returns {string}
  */
 export function monthKeyOfDate(date) {
 	return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`;
-}
-
-/**
- * Fin exclusivo de un periodo que inicia en `start`: el mismo día del mes
- * calendario siguiente. Como `startDay` está limitado a 1–28, la fecha siempre
- * existe.
- * @param {Date} start
- * @param {number} [startDay]
- * @returns {Date}
- */
-export function periodEndAfter(start, startDay = 1) {
-	if (!isValidStartDay(startDay)) {
-		throw new Error(`Día de inicio inválido: ${startDay}`);
-	}
-	return new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, startDay));
-}
-
-/**
- * Límites de un periodo a partir de su fecha de inicio.
- * @param {Date} start
- * @param {number} [startDay]
- * @returns {{ start: Date, end: Date, monthKey: string }}
- */
-export function periodBoundsFromStart(start, startDay = 1) {
-	if (!(start instanceof Date) || Number.isNaN(start.getTime())) {
-		throw new Error('Fecha de inicio inválida');
-	}
-	const normalized = new Date(
-		Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate())
-	);
-	return {
-		start: normalized,
-		end: periodEndAfter(normalized, startDay),
-		monthKey: monthKeyOfDate(normalized)
-	};
-}
-
-/**
- * ¿El periodo es un ciclo estándar de un mes (mismo día en el mes siguiente)?
- * Los periodos de transición por cambio de `monthStartDay` no lo son.
- * @param {Date} start
- * @param {Date} end
- * @param {number} [startDay]
- * @returns {boolean}
- */
-export function isStandardPeriod(start, end, startDay = 1) {
-	if (!(start instanceof Date) || !(end instanceof Date)) return false;
-	if (!isValidStartDay(startDay)) return false;
-	if (start.getUTCDate() !== startDay || end.getUTCDate() !== startDay) return false;
-	const expected = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + 1, startDay));
-	return expected.getTime() === end.getTime();
-}
-
-/**
- * Resuelve el periodo que contiene `referenceDate` respetando el fin del último
- * presupuesto confirmado. Si un cambio de `monthStartDay` haría que el periodo
- * calculado se solape con el último presupuesto, el nuevo periodo empieza donde
- * termina el anterior y se marca como transición. Así no hay solapamientos ni
- * huecos por el cambio de configuración.
- * @param {Date} referenceDate
- * @param {number} [monthStartDay]
- * @param {Date|null} [latestConfirmedEnd] - Fin exclusivo del último presupuesto confirmado anterior o igual a la fecha.
- * @returns {{ start: Date, end: Date, monthKey: string, startDay: number, isTransition: boolean }}
- */
-export function resolvePeriodForDate(referenceDate, monthStartDay = 1, latestConfirmedEnd = null) {
-	const naive = getMonthRange(referenceDate, monthStartDay);
-
-	if (
-		latestConfirmedEnd instanceof Date &&
-		!Number.isNaN(latestConfirmedEnd.getTime()) &&
-		latestConfirmedEnd.getTime() > naive.start.getTime() &&
-		latestConfirmedEnd.getTime() <= referenceDate.getTime()
-	) {
-		const bounds = periodBoundsFromStart(latestConfirmedEnd, monthStartDay);
-		return { ...bounds, startDay: monthStartDay, isTransition: true };
-	}
-
-	return {
-		start: naive.start,
-		end: naive.end,
-		monthKey: monthKeyOfDate(naive.start),
-		startDay: monthStartDay,
-		isTransition: false
-	};
 }
 
 /**

@@ -1,6 +1,6 @@
 import { getDb } from '$lib/server/db.js';
 
-/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, monthlyIncomeCents: number|null, currency: string, monthStartDay: number, incomeType: 'fixed'|'variable'|null }} Settings */
+/** @typedef {{ _id: import('mongodb').ObjectId, userId: string, monthlyIncomeCents: number|null, currency: string, incomeType: 'fixed'|'variable'|null }} Settings */
 
 /**
  * @param {string} userId
@@ -13,7 +13,7 @@ export async function getSettings(userId) {
 
 /**
  * @param {string} userId
- * @param {{ monthlyIncomeCents?: number|null, currency?: string, monthStartDay?: number, incomeType?: 'fixed'|'variable'|null }} data
+ * @param {{ monthlyIncomeCents?: number|null, currency?: string, incomeType?: 'fixed'|'variable'|null }} data
  * @returns {Promise<import('mongodb').UpdateResult>}
  */
 export async function upsertSettings(userId, data) {
@@ -23,7 +23,6 @@ export async function upsertSettings(userId, data) {
 		userId,
 		monthlyIncomeCents: data.monthlyIncomeCents ?? null,
 		currency: data.currency ?? 'MXN',
-		monthStartDay: data.monthStartDay ?? 1,
 		updatedAt: new Date()
 	};
 	// `incomeType` es una preferencia posterior al onboarding: no la borres si
@@ -45,7 +44,7 @@ export async function upsertSettings(userId, data) {
 
 /**
  * @param {string} userId
- * @param {Partial<Pick<Settings, 'monthlyIncomeCents' | 'currency' | 'monthStartDay' | 'incomeType'>>} updates
+ * @param {Partial<Pick<Settings, 'monthlyIncomeCents' | 'currency' | 'incomeType'>>} updates
  */
 export async function updateSettings(userId, updates) {
 	const db = await getDb();

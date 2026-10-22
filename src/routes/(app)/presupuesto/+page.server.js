@@ -20,10 +20,9 @@ import {
 	currentMonthKey,
 	formatPeriodLabel,
 	getMonthRangeByKey,
-	isStandardPeriod,
 	isValidMonthKey,
-	monthKeyFromDate,
 	monthKeyLabel,
+	monthKeyOfDate,
 	previousMonthKey,
 	shiftMonthKey
 } from '$lib/utils/periods.js';
@@ -59,8 +58,7 @@ function capitalize(value) {
 
 /**
  * Valida que la acción solo se aplique al ciclo actual (los anteriores son
- * de solo lectura). El ciclo actual se resuelve con los presupuestos guardados
- * para respetar periodos de transición por cambio de `monthStartDay`.
+ * de solo lectura).
  * @param {{ locals: { user: { id: string } } }} event
  * @param {FormData} formData
  * @returns {Promise<
@@ -69,16 +67,14 @@ function capitalize(value) {
  *       userId: string,
  *       monthKey: string,
  *       current: Awaited<ReturnType<typeof resolveCurrentPeriod>>,
- *       settings: Awaited<ReturnType<typeof getSettings>>,
- *       monthStartDay: number
+ *       settings: Awaited<ReturnType<typeof getSettings>>
  *     }
  * >}
  */
 async function requireCurrentMonth(event, formData) {
 	const userId = event.locals.user.id;
 	const settings = await getSettings(userId);
-	const monthStartDay = settings?.monthStartDay || 1;
-	const current = await resolveCurrentPeriod(userId, monthStartDay);
+	const current = await resolveCurrentPeriod(userId);
 	const rawMonth = formData.get('month')?.toString().trim() || current.monthKey;
 
 	if (!isValidMonthKey(rawMonth)) {
@@ -88,13 +84,12 @@ async function requireCurrentMonth(event, formData) {
 		return { error: fail(403, { error: 'Solo puedes editar el presupuesto del ciclo actual.' }) };
 	}
 
-	return { userId, monthKey: current.monthKey, current, settings, monthStartDay };
+	return { userId, monthKey: current.monthKey, current, settings };
 }
 
 export const load = async (event) => {
 	const userId = event.locals.user.id;
 	const settings = await getSettings(userId);
-	const monthStartDay = settings?.monthStartDay || 1;
 
 	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` muestra ese mes
 	// como si fuera el actual, en solo lectura. No escribe datos; en producción
@@ -102,15 +97,15 @@ export const load = async (event) => {
 	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
 	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
 
-	let current = await resolveCurrentPeriod(userId, monthStartDay);
+	let current = await resolveCurrentPeriod(userId);
 	const previewMode = !!previewKey && previewKey !== current.monthKey;
 
 	if (!previewMode) {
 		// El presupuesto legacy (sin mes) pasa al ciclo actual; luego se
 		// completan los límites explícitos de los presupuestos existentes.
-		await migrateLegacyBudgets(userId, currentMonthKey(monthStartDay), monthStartDay);
-		await migrateBudgetPeriods(userId, monthStartDay);
-		current = await resolveCurrentPeriod(userId, monthStartDay);
+		await migrateLegacyBudgets(userId, currentMonthKey());
+		await migrateBudgetPeriods(userId);
+		current = await resolveCurrentPeriod(userId);
 	}
 
 	const realCurrentKey = current.monthKey;
@@ -128,7 +123,7 @@ export const load = async (event) => {
 	let minMonthKey = shiftMonthKey(currentKey, -12);
 	if (earliestBudgetMonth && earliestBudgetMonth < minMonthKey) minMonthKey = earliestBudgetMonth;
 	if (earliestMovementDate) {
-		const movementMonth = monthKeyFromDate(earliestMovementDate, monthStartDay);
+		const movementMonth = monthKeyOfDate(earliestMovementDate);
 		if (movementMonth < minMonthKey) minMonthKey = movementMonth;
 	}
 	if (minMonthKey > currentKey) minMonthKey = currentKey;
@@ -155,14 +150,9 @@ export const load = async (event) => {
 	} else if (!previewMode && monthKey === realCurrentKey) {
 		range = { start: current.start, end: current.end };
 	} else {
-		range = getMonthRangeByKey(monthKey, monthStartDay);
+		range = getMonthRangeByKey(monthKey);
 	}
 
-	// El presupuesto guardado conserva el día de inicio con el que se creó. No
-	// se reinterpreta con la configuración actual: eso cambiaría su historia.
-	const rangeStartDay =
-		budgetDoc?.periodStartDay || (monthKey === realCurrentKey ? current.startDay : monthStartDay);
-	const standardPeriod = isStandardPeriod(range.start, range.end, rangeStartDay);
 	const monthLabel = capitalize(monthKeyLabel(monthKey));
 	const periodRangeLabel = formatPeriodLabel(range.start, range.end);
 
@@ -187,8 +177,7 @@ export const load = async (event) => {
 				status: budget.status === 'draft' ? 'draft' : 'confirmed',
 				replacedConfirmed: !!budget.replacedConfirmed,
 				periodStart: range.start,
-				periodEndExclusive: range.end,
-				periodStartDay: budget.periodStartDay || monthStartDay
+				periodEndExclusive: range.end
 			});
 			budget = { ...budget, lines: migratedLines, monthKey };
 			budgetLines = migratedLines;
@@ -511,7 +500,7 @@ export const load = async (event) => {
 	const prevRange =
 		prevBudget?.periodStart instanceof Date && prevBudget?.periodEndExclusive instanceof Date
 			? { start: prevBudget.periodStart, end: prevBudget.periodEndExclusive }
-			: getMonthRangeByKey(prevMonthKey, monthStartDay);
+			: getMonthRangeByKey(prevMonthKey);
 	const previousRealIncomeCents = await sumIncomeInRange(userId, prevRange.start, prevRange.end);
 	const prevMonthLabel =
 		prevBudget?.periodStart instanceof Date && prevBudget?.periodEndExclusive instanceof Date
@@ -538,8 +527,6 @@ export const load = async (event) => {
 		periodRangeLabel,
 		periodStart: range.start.toISOString(),
 		periodEndExclusive: range.end.toISOString(),
-		periodStartDay: rangeStartDay,
-		isTransitionPeriod: !standardPeriod,
 		monthOptions,
 		isCurrentMonth,
 		status,
@@ -608,7 +595,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey, current, monthStartDay } = ctx;
+		const { userId, monthKey, current } = ctx;
 
 		const [categories, existingBudget] = await Promise.all([
 			getCategoriesByUser(userId),
@@ -761,8 +748,7 @@ export const actions = {
 			status: 'confirmed',
 			replacedConfirmed: false,
 			periodStart: existingBudget?.periodStart || current.start,
-			periodEndExclusive: existingBudget?.periodEndExclusive || current.end,
-			periodStartDay: existingBudget?.periodStartDay || monthStartDay
+			periodEndExclusive: existingBudget?.periodEndExclusive || current.end
 		});
 
 		return { success: true, savedBudget: true, confirmedBudget: true };
@@ -775,7 +761,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey, current, settings, monthStartDay } = ctx;
+		const { userId, monthKey, current, settings } = ctx;
 
 		const [source, target] = await Promise.all([
 			getPreviousConfirmedBudget(userId, current.start),
@@ -856,8 +842,7 @@ export const actions = {
 				(target?.status === 'confirmed' && (target.lines?.length || 0) > 0) ||
 				!!target?.replacedConfirmed,
 			periodStart: target?.periodStart || current.start,
-			periodEndExclusive: target?.periodEndExclusive || current.end,
-			periodStartDay: target?.periodStartDay || monthStartDay
+			periodEndExclusive: target?.periodEndExclusive || current.end
 		});
 
 		const proposedFromLabel =
@@ -905,7 +890,7 @@ export const actions = {
 		const formData = await event.request.formData();
 		const ctx = await requireCurrentMonth(event, formData);
 		if ('error' in ctx) return ctx.error;
-		const { userId, monthKey, current, monthStartDay } = ctx;
+		const { userId, monthKey, current } = ctx;
 		const name = formData.get('name')?.toString().trim() ?? '';
 
 		if (!name) {
@@ -956,8 +941,7 @@ export const actions = {
 			status: budget?.status === 'draft' ? 'draft' : 'confirmed',
 			replacedConfirmed: !!budget?.replacedConfirmed,
 			periodStart: budget?.periodStart || current.start,
-			periodEndExclusive: budget?.periodEndExclusive || current.end,
-			periodStartDay: budget?.periodStartDay || monthStartDay
+			periodEndExclusive: budget?.periodEndExclusive || current.end
 		});
 		return { success: true, createdCategoryId: created.id };
 	},

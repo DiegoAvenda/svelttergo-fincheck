@@ -162,18 +162,19 @@ tests/                         # node:test sobre lógica pura
   `src/lib/utils/periods.js` (`getPeriodRange`, `getMonthRange`, ...) en vez de
   `new Date()` directo.
 - Las fechas se guardan como `Date` UTC representando el día local (mediodía UTC
-  para movimientos). El ciclo contable empieza el día configurable
-  `settings.monthStartDay` (**1–28**; 29–31 se rechazan en validación y en la
-  acción de Ajustes).
-- Para presupuestos no basta `YYYY-MM`: usa los límites explícitos
-  `periodStart`/`periodEndExclusive` y `resolveCurrentPeriod`. Las claves
-  canónicas `YYYY-MM` de `periods.js` (`currentMonthKey`, `monthKeyFromDate`,
-  `getMonthRangeByKey`, `shiftMonthKey`, `previousMonthKey`, `nextMonthKey`,
-  `isValidMonthKey`, `monthKeyLabel`) siguen sirviendo para navegar y comparar
-  (orden lexicográfico), no para identificar unívocamente un periodo.
-- Para rangos visibles usa `periodBoundsFromStart`, `periodEndAfter`,
-  `isStandardPeriod` y `formatPeriodLabel`. El fin de un periodo es **exclusivo**
-  en la base de datos; la etiqueta muestra el último día inclusivo.
+  para movimientos).
+- **El ciclo siempre es el mes calendario**: empieza el día 1 y termina el último
+  día natural del mes. No hay día de inicio configurable; `settings.monthStartDay`
+  se eliminó del modelo, la validación y la UI. El fin se guarda **exclusivo**
+  (día 1 del mes siguiente) y la UI muestra el último día inclusivo.
+- Las claves canónicas `YYYY-MM` de `periods.js` (`currentMonthKey`,
+  `monthKeyOfDate`, `getMonthRangeByKey`, `shiftMonthKey`, `previousMonthKey`,
+  `nextMonthKey`, `isValidMonthKey`, `monthKeyLabel`) sirven para navegar y
+  comparar (orden lexicográfico).
+- Para presupuestos usa los límites explícitos
+  `periodStart`/`periodEndExclusive` (fin exclusivo) y `resolveCurrentPeriod`; los
+  documentos guardados conservan sus fechas y no se reinterpretan. Para etiquetas
+  de rango usa `formatPeriodLabel`.
 
 ## Modelo de datos (MongoDB)
 
@@ -183,10 +184,16 @@ Colecciones propias (además de las de better-auth: `user`, `session`, `account`
   Los tickets con desglose dejan `categoryId = null` y reparten el gasto en `items`.
 - **`categories`**: catálogo del usuario. `{ userId, name, categoryKey, parentId, isFavorite, isHidden, isSystem, isCustom }`.
 - **`user_subcategories`**: subcategorías personalizadas. `{ userId, categoryId, key, name, isCustom, createdAt }`.
-- **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, monthStartDay, incomeType }`. `monthStartDay` está limitado a **1–28** (29–31 se rechazan). `incomeType` es `'fixed' | 'variable' | null` y solo sirve para decidir si la propuesta de un ciclo nuevo precarga el ingreso esperado.
+- **`settings`**: uno por usuario (índice único). `{ userId, monthlyIncomeCents, currency, incomeType }`. `incomeType` es `'fixed' | 'variable' | null` y solo sirve para decidir si la propuesta de un ciclo nuevo precarga el ingreso esperado. Documentos viejos pueden conservar `monthStartDay`; se ignora.
 - **`item_corrections`**: aprendizaje de ítems ambiguos de tickets.
-- **`budgets`**: uno por usuario **y periodo**. `{ userId, monthKey: 'YYYY-MM', periodStart: Date, periodEndExclusive: Date, periodStartDay: 1–28, periodInferred: boolean, plannedIncomeCents: number|null, status: 'draft'|'confirmed', replacedConfirmed: boolean, lines: [{ categoryId, subcategoryKey, plannedCents, categoryName, subcategoryName }] }`.
-  - `monthKey` es el mes calendario del **inicio** del periodo y se conserva para navegación (`?month=YYYY-MM`), pero **no identifica por sí solo** el periodo: los límites reales son `periodStart`/`periodEndExclusive` (fin exclusivo).
+- **`budgets`**: uno por usuario **y mes**. `{ userId, monthKey: 'YYYY-MM', periodStart: Date, periodEndExclusive: Date, periodInferred: boolean, plannedIncomeCents: number|null, status: 'draft'|'confirmed', replacedConfirmed: boolean, lines: [{ categoryId, subcategoryKey, plannedCents, categoryName, subcategoryName }] }`.
+  - `monthKey` es el mes calendario (`YYYY-MM`) y se conserva para la navegación
+    (`?month=YYYY-MM`). Los límites reales son
+    `periodStart`/`periodEndExclusive` (fin exclusivo); en los ciclos nuevos
+    siempre son el día 1 y el día 1 del mes siguiente.
+  - Documentos anteriores al modelo de mes calendario pueden tener periodos no
+    naturales y un `periodStartDay` legado: sus fechas se respetan y el campo se
+    ignora.
   - `plannedIncomeCents` es el ingreso **esperado** del ciclo. No es un movimiento real y no se suma a los ingresos de `movements`.
   - `status: 'draft'` es una propuesta pendiente de confirmar; solo `'confirmed'` cuenta como presupuesto.
   - `categoryName`/`subcategoryName` son _snapshots_ de respaldo (la UI prefiere el nombre vigente del catálogo).
@@ -264,23 +271,17 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 - Los gastos del presupuesto son **planeados** y viven en `budgets`; los gastos
   reales en `movements`. No los mezcles. El ingreso esperado del ciclo vive en
   `budgets.plannedIncomeCents` y tampoco es un movimiento real.
-- **Un presupuesto por usuario y periodo**. El identificador de negocio son los
-  límites `periodStart`/`periodEndExclusive` (fin exclusivo), no solo
-  `monthKey`. `monthKey: 'YYYY-MM'` es el mes calendario del inicio, se mantiene
-  **único por construcción** para los ciclos nuevos y se conserva para la
-  navegación `?month=YYYY-MM`.
-- **Resolución del ciclo actual**: `resolveCurrentPeriod` busca primero un
-  presupuesto que contenga la fecha (`periodStart <= hoy < periodEndExclusive`).
-  Si no existe, calcula el ciclo ingenuo con `monthStartDay`; si el último
-  presupuesto confirmado termina después de ese inicio, el ciclo nuevo empieza
-  **donde termina el anterior** (periodo de transición) y su fin es el mismo día
-  del mes siguiente (`periodEndAfter`). Los borradores no sirven de ancla.
-  - El **cambio de `monthStartDay`** solo afecta al siguiente ciclo. Los
-    presupuestos guardados conservan sus fechas y no se reinterpretan; por eso
-    el historial no cambia aunque el usuario ajuste el día de inicio.
-  - `migrateBudgetPeriods` rellena límites faltantes de presupuestos anteriores
-    usando el `monthStartDay` vigente y marca `periodInferred: true`. No inventa
-    presupuestos ni ingresos.
+- **Un presupuesto por usuario y mes**. El identificador de negocio son los
+  límites `periodStart`/`periodEndExclusive` (fin exclusivo).
+  `monthKey: 'YYYY-MM'` es el mes calendario, es único por construcción y se usa
+  para la navegación `?month=YYYY-MM`.
+- **Resolución del ciclo actual**: `resolveCurrentPeriod(userId)` calcula el mes
+  calendario de hoy (`getMonthRange`) y busca el presupuesto guardado de ese mes.
+  No existe día de inicio configurable ni periodos de transición.
+  - Los presupuestos ya guardados conservan sus fechas y no se reinterpretan.
+  - `migrateBudgetPeriods` solo rellena límites faltantes de presupuestos
+    anteriores al modelo de ciclos explícitos con el mes calendario y marca
+    `periodInferred: true`. No inventa presupuestos ni ingresos.
 - **Índices**: único parcial `{ userId, periodStart }` (solo documentos con
   `periodStart` date) para impedir dos presupuestos en el mismo periodo, y no
   único `{ userId, monthKey }` para navegación/compatibilidad. El índice único
@@ -339,11 +340,10 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
   formulario reemplaza todas las líneas, y siempre incluye un `general|` por
   categoría incluida aunque sea 0).
 - **Migración legacy**: el modelo anterior tenía un único presupuesto por usuario
-  (`{ userId }`). `migrateLegacyBudgets(userId, currentMonthKey, monthStartDay)` lo
-  asigna de forma idempotente al ciclo contable actual **solo si no existe ya** un
-  presupuesto de ese ciclo; no inventa meses históricos. Si hubiera documentos
-  legacy duplicados, se conservan con una clave no canónica (`legacy-<id>`) para
-  no perder información.
+  (`{ userId }`). `migrateLegacyBudgets(userId, currentMonthKey)` lo asigna de
+  forma idempotente al mes actual **solo si no existe ya** un presupuesto de ese
+  mes; no inventa meses históricos. Si hubiera documentos legacy duplicados, se
+  conservan con una clave no canónica (`legacy-<id>`) para no perder información.
 - **Categorías personalizadas**: son **categorías reales** (ver sección
   siguiente), no etiquetas solo de presupuesto. Se crean desde el presupuesto o
   desde Ajustes → Categorías y se comportan como cualquier otra: aparecen en
@@ -352,10 +352,11 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
   `budgetHasPlanned`, `cloneBudgetLines`, `filterVisibleBudgetLines`,
   `plannedCentsByCategory`, `plannedCategoryCount`, `buildBudgetLinesFromForm`,
   `remainingFromIncome`, `budgetUsedPct`, ...).
-- Utilidades de periodos en `src/lib/utils/periods.js`: `isValidStartDay` (1–28),
-  `periodBoundsFromStart`, `periodEndAfter`, `isStandardPeriod`,
-  `resolvePeriodForDate`, `formatPeriodLabel`, además de las claves canónicas
-  `YYYY-MM`.
+- Utilidades de periodos en `src/lib/utils/periods.js`: `getMonthRange`,
+  `getMonthRangeByKey`, `getPeriodRange`, `monthKeyOfDate`, `currentMonthKey`,
+  `formatPeriodLabel` y las claves `YYYY-MM` (`shiftMonthKey`,
+  `previousMonthKey`, `nextMonthKey`, `isValidMonthKey`, `monthKeyLabel`). No hay
+  día de inicio configurable ni periodos de transición.
 - Gasto real por subcategoría: `getSpendingByCategorySubcategory` en
   `src/lib/server/analytics/spending-by-subcategory.js`. La comparación contra lo
   real se arma en `presupuesto/+page.server.js` (por categoría con
@@ -375,8 +376,8 @@ Lo que la IA resolvió sola no se guarda en `item_corrections`.
 - Al agregar un archivo de test, **actualiza el script `test`** en `package.json`.
   Ejecuta `pnpm test` antes de dar por terminado un cambio.
 - Cobertura relevante del presupuesto: `tests/budget.test.js` (matemática pura),
-  `tests/budget-periods.test.js` (claves de mes, límites explícitos, transición,
-  validación de día 1–28 e `incomeType`, `cloneBudgetLines`,
+  `tests/budget-periods.test.js` (claves de mes, ciclo del día 1 al último día
+  natural, etiquetas, `incomeType`, `cloneBudgetLines`,
   `filterVisibleBudgetLines`, `budgetHasPlanned`) y
   `tests/catalog-usage.test.js` (referencias de movimiento/ítem/presupuesto y
   borrado del padre con subcategorías hijas).

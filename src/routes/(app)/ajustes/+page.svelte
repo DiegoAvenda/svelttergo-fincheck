@@ -5,7 +5,6 @@
 
 	let monthlyIncome = $state(data.settings.monthlyIncomePesos);
 	let currency = $state(data.settings.currency);
-	let monthStartDay = $state(data.settings.monthStartDay);
 	let incomeType = $state(data.settings.incomeType || '');
 	let saving = $state(false);
 	let loggingOut = $state(false);
@@ -136,21 +135,6 @@
 					<option value="variable">Variables</option>
 				</select>
 				<span class="field-hint">Si es fijo, se precarga; si variable, solo referencia.</span>
-			</div>
-
-			<div class="field">
-				<label for="monthStartDay" class="field-label">Día de inicio del ciclo</label>
-				<select
-					id="monthStartDay"
-					name="monthStartDay"
-					bind:value={monthStartDay}
-					class="input-field"
-				>
-					{#each Array.from({ length: 28 }, (_, i) => i + 1) as day (day)}
-						<option value={day}>Día {day} de cada mes</option>
-					{/each}
-				</select>
-				<span class="field-hint">1–28. Se aplica al siguiente ciclo; no cambia los guardados.</span>
 			</div>
 
 			<div class="field">

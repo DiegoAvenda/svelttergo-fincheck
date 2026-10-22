@@ -365,9 +365,6 @@
 				{#if !data.isCurrentMonth}
 					<span class="readonly-badge">Solo lectura</span>
 				{/if}
-				{#if data.isTransitionPeriod}
-					<span class="status-badge transition">Transición</span>
-				{/if}
 				{#if data.isDraft}
 					<span class="status-badge draft">Propuesta pendiente</span>
 				{:else if data.hasStoredBudget}
@@ -1352,12 +1349,6 @@
 		color: var(--app-text);
 		background: var(--input-bg);
 		border: 1px dashed var(--app-text-secondary);
-	}
-
-	.status-badge.transition {
-		color: var(--app-text-secondary);
-		background: transparent;
-		border: 1px solid var(--color-primary-300);
 	}
 
 	.status-badge.empty {

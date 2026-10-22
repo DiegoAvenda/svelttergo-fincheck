@@ -2,7 +2,6 @@ import { error } from '@sveltejs/kit';
 import { getCategoryDetail } from '$lib/server/analytics/category-detail.js';
 import { getCategoryById } from '$lib/server/repos/categories.js';
 import { getCustomSubcategories } from '$lib/server/repos/custom-catalog.js';
-import { getSettings } from '$lib/server/repos/settings.js';
 import { getPeriodRange } from '$lib/utils/periods.js';
 import { SYSTEM_CATEGORY_UNCLASSIFIED } from '$lib/server/defaults/categories.js';
 
@@ -11,14 +10,7 @@ export const load = async (event) => {
 	const categoryId = event.params.categoriaId;
 	const period = event.url.searchParams.get('period') || 'this-month';
 
-	const settings = await getSettings(userId);
-	const monthStartDay = settings?.monthStartDay || 1;
-
-	const {
-		start,
-		end,
-		label: periodLabel
-	} = getPeriodRange(/** @type {any} */ (period), monthStartDay);
+	const { start, end, label: periodLabel } = getPeriodRange(/** @type {any} */ (period));
 
 	let categoryName;
 	if (categoryId === 'sin-clasificar') {

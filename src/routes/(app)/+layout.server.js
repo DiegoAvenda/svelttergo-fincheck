@@ -38,7 +38,6 @@ export const load = async (event) => {
 			? {
 					monthlyIncomeCents: settings.monthlyIncomeCents,
 					currency: settings.currency,
-					monthStartDay: settings.monthStartDay,
 					incomeType: settings.incomeType || null
 				}
 			: null

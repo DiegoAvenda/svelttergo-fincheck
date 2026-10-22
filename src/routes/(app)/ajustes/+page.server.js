@@ -14,7 +14,6 @@ export const load = async (event) => {
 				? centsToPesos(settings.monthlyIncomeCents)
 				: '',
 			currency: settings?.currency || 'MXN',
-			monthStartDay: settings?.monthStartDay || 1,
 			incomeType: settings?.incomeType || ''
 		}
 	};
@@ -27,7 +26,6 @@ export const actions = {
 
 		const incomeStr = formData.get('monthlyIncome')?.toString()?.trim() ?? '';
 		const currency = formData.get('currency')?.toString()?.trim() || 'MXN';
-		const dayStr = formData.get('monthStartDay')?.toString()?.trim() || '1';
 		const incomeTypeRaw = formData.get('incomeType')?.toString()?.trim() || '';
 		let incomeType = null;
 		if (incomeTypeRaw === 'fixed' || incomeTypeRaw === 'variable') {
@@ -44,17 +42,9 @@ export const actions = {
 			}
 		}
 
-		const parsedDay = Number(dayStr);
-		if (!Number.isInteger(parsedDay) || parsedDay < 1 || parsedDay > 28) {
-			return fail(400, {
-				error: 'El día de inicio del ciclo debe estar entre 1 y 28.'
-			});
-		}
-
 		await updateSettings(userId, {
 			monthlyIncomeCents,
 			currency,
-			monthStartDay: parsedDay,
 			incomeType
 		});
 

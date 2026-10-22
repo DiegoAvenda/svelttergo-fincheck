@@ -42,8 +42,7 @@ export const actions = {
 		await Promise.all([
 			upsertSettings(userId, {
 				monthlyIncomeCents,
-				currency: 'MXN',
-				monthStartDay: 1
+				currency: 'MXN'
 			}),
 			seedDefaultCategories(userId)
 		]);
@@ -60,8 +59,7 @@ export const actions = {
 		await Promise.all([
 			upsertSettings(userId, {
 				monthlyIncomeCents: null,
-				currency: 'MXN',
-				monthStartDay: 1
+				currency: 'MXN'
 			}),
 			seedDefaultCategories(userId)
 		]);

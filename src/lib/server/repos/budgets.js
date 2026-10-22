@@ -2,9 +2,7 @@ import { getDb } from '$lib/server/db.js';
 import {
 	getMonthRange,
 	getMonthRangeByKey,
-	isStandardPeriod,
 	monthKeyOfDate,
-	resolvePeriodForDate,
 	todayInMX
 } from '$lib/utils/periods.js';
 
@@ -24,7 +22,6 @@ import {
  *   monthKey: string,
  *   periodStart?: Date|null,
  *   periodEndExclusive?: Date|null,
- *   periodStartDay?: number|null,
  *   periodInferred?: boolean,
  *   plannedIncomeCents?: number|null,
  *   status?: 'draft'|'confirmed',
@@ -62,25 +59,8 @@ export async function getBudget(userId, monthKey) {
 }
 
 /**
- * Presupuesto cuyo intervalo `[periodStart, periodEndExclusive)` contiene la
- * fecha indicada.
- * @param {string} userId
- * @param {Date} date
- * @returns {Promise<Budget|null>}
- */
-export async function getBudgetContainingDate(userId, date) {
-	const db = await getDb();
-	return db
-		.collection('budgets')
-		.findOne(
-			{ userId, periodStart: { $lte: date }, periodEndExclusive: { $gt: date } },
-			{ sort: { periodStart: -1 } }
-		);
-}
-
-/**
  * Último presupuesto confirmado que termina antes (o justo en) una fecha.
- * Los borradores no se usan como ancla de periodos.
+ * Los borradores no se usan como origen de la propuesta.
  * @param {string} userId
  * @param {Date} date
  * @returns {Promise<Budget|null>}
@@ -110,75 +90,30 @@ export async function getPreviousConfirmedBudget(userId, beforeDate) {
 }
 
 /**
- * Resuelve el ciclo que contiene `referenceDate` usando los presupuestos
- * guardados. Si el último presupuesto confirmado se extiende más allá del
- * cálculo ingenuo del nuevo `monthStartDay`, el nuevo ciclo empieza donde
- * termina el anterior (periodo de transición) para no solaparse.
+ * Resuelve el ciclo (mes calendario) que contiene `referenceDate`. El ciclo
+ * siempre va del día 1 al último día natural del mes; si ya existe un
+ * presupuesto guardado para ese mes, se devuelve su estado.
  * @param {string} userId
- * @param {number} [monthStartDay]
  * @param {Date} [referenceDate]
  * @returns {Promise<{
  *   monthKey: string,
  *   start: Date,
  *   end: Date,
- *   startDay: number,
- *   isTransition: boolean,
  *   status: 'draft'|'confirmed'|null,
  *   budget: Budget|null
  * }>}
  */
-export async function resolveCurrentPeriod(userId, monthStartDay = 1, referenceDate = todayInMX()) {
-	const containing = await getBudgetContainingDate(userId, referenceDate);
-	if (containing?.periodStart && containing?.periodEndExclusive) {
-		const startDay = containing.periodStartDay || monthStartDay;
-		return {
-			monthKey: containing.monthKey || monthKeyOfDate(containing.periodStart),
-			start: containing.periodStart,
-			end: containing.periodEndExclusive,
-			startDay,
-			isTransition: !isStandardPeriod(
-				containing.periodStart,
-				containing.periodEndExclusive,
-				startDay
-			),
-			status: containing.status || 'confirmed',
-			budget: containing
-		};
-	}
-
-	const naive = getMonthRange(referenceDate, monthStartDay);
-
-	// Compatibilidad con documentos aún sin límites explícitos.
-	const legacy = await dbLegacyBudget(userId, monthKeyOfDate(naive.start));
-	if (legacy && !legacy.periodStart) {
-		return {
-			monthKey: legacy.monthKey,
-			start: naive.start,
-			end: naive.end,
-			startDay: monthStartDay,
-			isTransition: false,
-			status: legacy.status || 'confirmed',
-			budget: legacy
-		};
-	}
-
-	const latest = await getLatestConfirmedBudgetBefore(userId, referenceDate);
-	const resolved = resolvePeriodForDate(
-		referenceDate,
-		monthStartDay,
-		latest?.periodEndExclusive instanceof Date ? latest.periodEndExclusive : null
-	);
-	return { ...resolved, status: null, budget: null };
-}
-
-/**
- * @param {string} userId
- * @param {string} monthKey
- * @returns {Promise<Budget|null>}
- */
-async function dbLegacyBudget(userId, monthKey) {
-	const db = await getDb();
-	return db.collection('budgets').findOne({ userId, monthKey });
+export async function resolveCurrentPeriod(userId, referenceDate = todayInMX()) {
+	const { start, end } = getMonthRange(referenceDate);
+	const monthKey = monthKeyOfDate(start);
+	const budget = await getBudget(userId, monthKey);
+	return {
+		monthKey,
+		start,
+		end,
+		status: budget?.status || null,
+		budget: budget || null
+	};
 }
 
 /**
@@ -194,8 +129,7 @@ async function dbLegacyBudget(userId, monthKey) {
  *   status?: 'draft'|'confirmed',
  *   replacedConfirmed?: boolean,
  *   periodStart?: Date|null,
- *   periodEndExclusive?: Date|null,
- *   periodStartDay?: number|null
+ *   periodEndExclusive?: Date|null
  * }} data
  * @returns {Promise<import('mongodb').UpdateResult>}
  */
@@ -231,13 +165,11 @@ export async function setBudget(userId, monthKey, data = {}) {
 		if (!existing.periodEndExclusive && data.periodEndExclusive) {
 			set.periodEndExclusive = data.periodEndExclusive;
 		}
-		if (!existing.periodStartDay && data.periodStartDay) set.periodStartDay = data.periodStartDay;
 		return budgets.updateOne({ _id: existing._id, userId }, { $set: set });
 	}
 
 	const periodStart = data.periodStart || null;
 	const periodEndExclusive = data.periodEndExclusive || null;
-	const periodStartDay = data.periodStartDay ?? null;
 
 	for (let attempt = 0; attempt < 2; attempt++) {
 		try {
@@ -251,8 +183,7 @@ export async function setBudget(userId, monthKey, data = {}) {
 						replacedConfirmed: !!data.replacedConfirmed,
 						updatedAt: now,
 						...(periodStart ? { periodStart } : {}),
-						...(periodEndExclusive ? { periodEndExclusive } : {}),
-						...(periodStartDay ? { periodStartDay } : {})
+						...(periodEndExclusive ? { periodEndExclusive } : {})
 					},
 					$setOnInsert: { userId, monthKey, createdAt: now }
 				},
@@ -342,21 +273,20 @@ export async function getEarliestBudgetMonth(userId) {
 }
 
 /**
- * Migra de forma idempotente los presupuestos legacy (sin `monthKey`) al ciclo
- * contable actual. Es la única interpretación segura: antes existía un único
+ * Migra de forma idempotente los presupuestos legacy (sin `monthKey`) al mes
+ * actual. Es la única interpretación segura: antes existía un único
  * presupuesto por usuario y era el vigente. Nunca pisa un presupuesto que ya
  * exista para el ciclo destino ni modifica importes.
  * @param {string} userId
  * @param {string} currentMonthKey
- * @param {number} [monthStartDay]
  * @returns {Promise<{ migrated: number }>}
  */
-export async function migrateLegacyBudgets(userId, currentMonthKey, monthStartDay = 1) {
+export async function migrateLegacyBudgets(userId, currentMonthKey) {
 	if (!currentMonthKey) return { migrated: 0 };
 	const db = await getDb();
 	const budgets = db.collection('budgets');
 	const legacyDocs = await budgets.find({ userId, ...LEGACY_MONTH_FILTER }).toArray();
-	const range = getMonthRangeByKey(currentMonthKey, monthStartDay);
+	const range = getMonthRangeByKey(currentMonthKey);
 
 	let migrated = 0;
 	for (const doc of legacyDocs) {
@@ -378,7 +308,6 @@ export async function migrateLegacyBudgets(userId, currentMonthKey, monthStartDa
 						monthKey: currentMonthKey,
 						periodStart: range.start,
 						periodEndExclusive: range.end,
-						periodStartDay: monthStartDay,
 						periodInferred: true,
 						status: doc.status === 'draft' ? 'draft' : 'confirmed',
 						plannedIncomeCents: doc.plannedIncomeCents ?? null,
@@ -398,15 +327,14 @@ export async function migrateLegacyBudgets(userId, currentMonthKey, monthStartDa
 }
 
 /**
- * Rellena `periodStart`, `periodEndExclusive`, `periodStartDay`, `status` y
- * `plannedIncomeCents` en presupuestos anteriores al modelo de ciclos
- * explícitos. Es idempotente y no inventa presupuestos ni ingresos: solo marca
- * los límites como inferidos con el `monthStartDay` vigente al migrar.
+ * Rellena `periodStart`, `periodEndExclusive`, `status` y `plannedIncomeCents`
+ * en presupuestos anteriores al modelo de ciclos explícitos. Es idempotente y
+ * no inventa presupuestos ni ingresos: solo marca los límites como inferidos
+ * (mes calendario).
  * @param {string} userId
- * @param {number} [monthStartDay]
  * @returns {Promise<{ migrated: number }>}
  */
-export async function migrateBudgetPeriods(userId, monthStartDay = 1) {
+export async function migrateBudgetPeriods(userId) {
 	const db = await getDb();
 	const budgets = db.collection('budgets');
 	const docs = await budgets
@@ -425,14 +353,13 @@ export async function migrateBudgetPeriods(userId, monthStartDay = 1) {
 	let migrated = 0;
 	for (const doc of docs) {
 		try {
-			const range = getMonthRangeByKey(doc.monthKey, monthStartDay);
+			const range = getMonthRangeByKey(doc.monthKey);
 			const res = await budgets.updateOne(
 				{ _id: doc._id, userId },
 				{
 					$set: {
 						periodStart: range.start,
 						periodEndExclusive: range.end,
-						periodStartDay: monthStartDay,
 						periodInferred: true,
 						status: doc.status === 'draft' ? 'draft' : 'confirmed',
 						plannedIncomeCents: doc.plannedIncomeCents ?? null,

@@ -10,9 +10,8 @@ export const load = async (event) => {
 	const period = event.url.searchParams.get('period') || 'this-month';
 
 	const settings = await getSettings(userId);
-	const monthStartDay = settings?.monthStartDay || 1;
 
-	const currentRange = getPeriodRange(/** @type {any} */ (period), monthStartDay);
+	const currentRange = getPeriodRange(/** @type {any} */ (period));
 	const comparisonRange = getComparisonRange(currentRange);
 
 	const [spending, comparisonMap, registeredIncome, allCategories] = await Promise.all([
@@ -53,8 +52,12 @@ export const load = async (event) => {
 		const comp = comparisonMap.get(key);
 		const changePct = comp?.changePct ?? null;
 
-		const incomePct = baseIncomeCents && baseIncomeCents > 0 ? Math.round((s.totalCents / baseIncomeCents) * 100) : null;
-		const totalPct = totalSpendingCents > 0 ? Math.round((s.totalCents / totalSpendingCents) * 100) : 0;
+		const incomePct =
+			baseIncomeCents && baseIncomeCents > 0
+				? Math.round((s.totalCents / baseIncomeCents) * 100)
+				: null;
+		const totalPct =
+			totalSpendingCents > 0 ? Math.round((s.totalCents / totalSpendingCents) * 100) : 0;
 
 		return {
 			categoryId: s.categoryId ? key : 'sin-clasificar',

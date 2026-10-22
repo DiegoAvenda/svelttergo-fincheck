@@ -25,7 +25,6 @@ export const settingsSchema = z.object({
 			])
 		),
 	currency: z.string().default('MXN'),
-	monthStartDay: z.coerce.number().int().min(1).max(28).default(1),
 	incomeType: z
 		.union([
 			z.literal('').transform(() => null),

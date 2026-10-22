@@ -36,7 +36,6 @@ export const load = async (event) => {
 	const userId = event.locals.user.id;
 
 	const settings = await getSettings(userId);
-	const monthStartDay = settings?.monthStartDay || 1;
 
 	// Moderador de pruebas (solo dev): `?previewMonth=YYYY-MM` hace que esta
 	// pantalla crea que ese es el mes actual. No cambia datos ni el reloj y en
@@ -44,15 +43,15 @@ export const load = async (event) => {
 	const previewParam = dev ? event.url.searchParams.get('previewMonth') : null;
 	const previewKey = previewParam && isValidMonthKey(previewParam) ? previewParam : null;
 
-	let current = await resolveCurrentPeriod(userId, monthStartDay);
+	let current = await resolveCurrentPeriod(userId);
 	const previewMode = !!previewKey && previewKey !== current.monthKey;
 
 	if (!previewMode) {
 		// El presupuesto legacy (sin mes) pasa al ciclo actual y se completan
 		// los límites de los presupuestos anteriores al modelo de ciclos.
-		await migrateLegacyBudgets(userId, currentMonthKey(monthStartDay), monthStartDay);
-		await migrateBudgetPeriods(userId, monthStartDay);
-		current = await resolveCurrentPeriod(userId, monthStartDay);
+		await migrateLegacyBudgets(userId, currentMonthKey());
+		await migrateBudgetPeriods(userId);
+		current = await resolveCurrentPeriod(userId);
 	}
 
 	const realCurrentKey = current.monthKey;
@@ -71,7 +70,7 @@ export const load = async (event) => {
 		start = current.start;
 		end = current.end;
 	} else {
-		const range = getMonthRangeByKey(currentKey, monthStartDay);
+		const range = getMonthRangeByKey(currentKey);
 		start = range.start;
 		end = range.end;
 	}
