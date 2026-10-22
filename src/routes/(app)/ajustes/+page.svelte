@@ -12,7 +12,7 @@
 </script>
 
 <svelte:head>
-	<title>Ajustes — contlana</title>
+	<title>Ajustes — NAVEDDY</title>
 </svelte:head>
 
 <div class="settings-page">
@@ -292,7 +292,9 @@
 		padding: 1rem 1.25rem;
 		text-decoration: none;
 		color: var(--app-text);
-		transition: background 150ms ease, box-shadow 150ms ease;
+		transition:
+			background 150ms ease,
+			box-shadow 150ms ease;
 		border-radius: var(--radius-md);
 
 		&:hover {

@@ -6,7 +6,7 @@ actualiza este archivo cuando cambies una convención.
 
 ## Qué es este proyecto
 
-**contlana** es una app móvil-first de finanzas personales para México. Permite
+**NAVEDDY** es una app móvil-first de finanzas personales para México. Permite
 registrar ingresos/gastos, escanear tickets con IA (OCR + clasificación), ver
 hábitos de consumo por categoría, exportar datos y **planear un presupuesto
 mensual** (gastos planeados) comparándolo con los gastos reales.
@@ -88,7 +88,7 @@ src/
       item-corrections/+server.js # POST aprendizaje de ítems ambiguos
   lib/
     index.js
-    components/layout/         # TabBar.svelte, PlusSheet.svelte
+    components/layout/         # TabBar.svelte, PlusSheet.svelte, Brand.svelte
     utils/                     # lógica PURA (testeable): money, periods, *-math, display
     validation/schemas.js      # Zod schemas de formularios
     server/
@@ -112,7 +112,7 @@ tests/                         # node:test sobre lógica pura
 - Usa `$props()`, `$state()`, `$derived()`, `$bindable()`, `{@render children()}`.
 - Navegación reactiva: `import { page } from '$app/state'` (no `$app/stores`).
 - Formularios: `import { enhance } from '$app/forms'` con `<form method="post" action="?/accion">`.
-- `<svelte:head><title>Sección — contlana</title></svelte:head>` en cada página.
+- `<svelte:head><title>Sección — NAVEDDY</title></svelte:head>` en cada página.
 
 ### Server (`+page.server.js`, `+server.js`)
 
@@ -129,14 +129,22 @@ tests/                         # node:test sobre lógica pura
 
 ### UI y estilos
 
-- Mobile-first, contenido centrado a `max-width: 32rem`, navegación en `TabBar`
-  superior. No hay barra inferior.
+- Mobile-first, contenido centrado con `max-width: var(--app-max-width)` (`56rem`)
+  y margen lateral `var(--app-gutter)` (`1rem`, `1.5rem` desde 48rem y `2rem`
+  desde 80rem). No hardcodees anchos ni padding lateral: usa esos tokens en el
+  layout y en la `TabBar`. Navegación en `TabBar` superior; no hay barra inferior.
 - Tokens de diseño en `src/routes/layout.css`: usa variables (`--app-bg`,
   `--card-bg`, `--color-primary-*`, `--color-danger-*`, `--radius-*`) en vez de
   colores hardcodeados. Soporta modo oscuro vía `prefers-color-scheme`.
 - Utilidades Tailwind propias ya definidas: `card`, `btn-primary`,
   `btn-secondary`, `btn-danger`, `input-field`, `chip`, `chip-active`,
   `text-money`. Prefiérelas antes de reinventar estilos.
+- Marca de la app: usa `<Brand />` de `src/lib/components/layout/Brand.svelte`
+  (`size`: `sm` | `md` | `lg`) para mostrar el símbolo + "NAVEDDY". En la app
+  autenticada aparece en la `TabBar` desde 56rem (espacio a los costados) y en el
+  encabezado de Inicio en móvil; no la dupliques en otras pantallas.
+- El favicon (`src/lib/assets/favicon.svg`) es el símbolo de la marca: si cambias
+  el logo, actualiza ambos.
 - Estilos de componente con `<style>` scoped. Prettier **ordena las clases
   Tailwind automáticamente** (`prettier-plugin-tailwindcss`).
 

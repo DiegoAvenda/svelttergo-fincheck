@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import Brand from '$lib/components/layout/Brand.svelte';
 
 	let { data, form } = $props();
 	let income = $state(form?.values?.monthlyIncome ?? '');
@@ -7,16 +8,21 @@
 </script>
 
 <svelte:head>
-	<title>¡Te damos la bienvenida! — contlana</title>
+	<title>¡Te damos la bienvenida! — NAVEDDY</title>
 </svelte:head>
 
 <div class="welcome-wrapper">
 	<div class="welcome-card card">
+		<div class="brand-row">
+			<Brand size="sm" />
+		</div>
+
 		<div class="header">
 			<div class="badge">Paso 1 de 1</div>
 			<h1 class="title">¡Hola, {data.user.name || 'amigo'}!</h1>
 			<p class="subtitle">
-				Para calcular qué porcentaje de tu dinero se va en cada hábito de consumo, necesitamos un dato aproximado.
+				Para calcular qué porcentaje de tu dinero se va en cada hábito de consumo, necesitamos un
+				dato aproximado.
 			</p>
 		</div>
 
@@ -51,7 +57,9 @@
 				{#if form?.error}
 					<p class="error-msg">{form.error}</p>
 				{/if}
-				<p class="hint">Es solo una referencia personal. Podrás cambiarlo o ajustarlo en cualquier momento.</p>
+				<p class="hint">
+					Es solo una referencia personal. Podrás cambiarlo o ajustarlo en cualquier momento.
+				</p>
 			</div>
 
 			<div class="actions">
@@ -73,9 +81,7 @@
 			}}
 			class="skip-form"
 		>
-			<button type="submit" class="skip-btn" disabled={submitting}>
-				Omitir por ahora
-			</button>
+			<button type="submit" class="skip-btn" disabled={submitting}> Omitir por ahora </button>
 		</form>
 	</div>
 </div>
@@ -94,6 +100,10 @@
 		width: 100%;
 		max-width: 28rem;
 		padding: 2.25rem 1.75rem;
+	}
+
+	.brand-row {
+		margin-bottom: 1.25rem;
 	}
 
 	.badge {
@@ -143,7 +153,9 @@
 		border: 1px solid var(--app-border);
 		border-radius: var(--radius-xl);
 		padding: 0.5rem 1rem;
-		transition: border-color 150ms ease, box-shadow 150ms ease;
+		transition:
+			border-color 150ms ease,
+			box-shadow 150ms ease;
 
 		&:focus-within {
 			border-color: var(--color-primary-400);

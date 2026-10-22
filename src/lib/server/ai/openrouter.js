@@ -11,7 +11,7 @@ export function getOpenRouterConfig() {
 	const models = [primary].filter(Boolean);
 	const appUrl = env.OPENROUTER_APP_URL || process.env.OPENROUTER_APP_URL || '';
 	const appTitle =
-		env.OPENROUTER_APP_TITLE || process.env.OPENROUTER_APP_TITLE || 'contlana Tickets';
+		env.OPENROUTER_APP_TITLE || process.env.OPENROUTER_APP_TITLE || 'NAVEDDY Tickets';
 	const timeoutMs = Number(env.OPENROUTER_TIMEOUT_MS || process.env.OPENROUTER_TIMEOUT_MS || 60000);
 	const reasoningEffort =
 		env.OPENROUTER_REASONING_EFFORT || process.env.OPENROUTER_REASONING_EFFORT || 'none';
@@ -56,7 +56,12 @@ async function callGroq({ apiKey, model, system, messages, max_tokens, temperatu
 				: Array.isArray(msg?.content)
 					? msg.content.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('')
 					: '';
-		const text = contentText.trim() || msg?.reasoning?.trim() || msg?.reasoning_content?.trim() || choice?.text?.trim() || '';
+		const text =
+			contentText.trim() ||
+			msg?.reasoning?.trim() ||
+			msg?.reasoning_content?.trim() ||
+			choice?.text?.trim() ||
+			'';
 		const modelUsed = data?.model || model;
 		if (!text) {
 			console.error(`[groq] empty from ${model}:`, JSON.stringify(data)?.slice(0, 800));
@@ -166,9 +171,7 @@ export async function callOpenRouter({
 				typeof msg?.content === 'string'
 					? msg.content
 					: Array.isArray(msg?.content)
-						? msg.content
-							.map((p) => (typeof p === 'string' ? p : p?.text || ''))
-							.join('')
+						? msg.content.map((p) => (typeof p === 'string' ? p : p?.text || '')).join('')
 						: '';
 
 			const text =
@@ -273,9 +276,7 @@ export function extractJson(text) {
 		return JSON.parse(candidate);
 	} catch (primaryErr) {
 		try {
-			const cleaned = candidate
-				.replace(/,\s*([}\]])/g, '$1')
-				.replace(/,\s*$/, '');
+			const cleaned = candidate.replace(/,\s*([}\]])/g, '$1').replace(/,\s*$/, '');
 			return JSON.parse(cleaned);
 		} catch {
 			throw primaryErr;

@@ -73,7 +73,7 @@
 </script>
 
 <svelte:head>
-	<title>Movimientos — contlana</title>
+	<title>Movimientos — NAVEDDY</title>
 </svelte:head>
 
 <div class="movimientos-page">

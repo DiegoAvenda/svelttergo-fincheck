@@ -118,7 +118,7 @@ async function ensureBudgetIndexes(db) {
 }
 
 /**
- * Crea los índices necesarios para las colecciones de contlana.
+ * Crea los índices necesarios para las colecciones de NAVEDDY.
  * Se ejecuta una vez al inicio de la app.
  */
 export async function ensureIndexes() {

@@ -2,14 +2,21 @@
 </script>
 
 <svelte:head>
-	<title>Exportar movimientos — contlana</title>
+	<title>Exportar movimientos — NAVEDDY</title>
 </svelte:head>
 
 <!-- TODO: mejorar la exportación Excel y ocultar temporalmente -->
 <div class="export-page">
 	<div class="top-bar">
 		<a href="/ajustes" class="back-link" aria-label="Volver a ajustes">
-			<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<svg
+				width="22"
+				height="22"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M19 12H5M12 19l-7-7 7-7" />
 			</svg>
 		</a>
@@ -19,7 +26,14 @@
 
 	<div class="export-card card">
 		<div class="export-icon">
-			<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+			<svg
+				width="40"
+				height="40"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.8"
+			>
 				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 				<polyline points="7 10 12 15 17 10" />
 				<line x1="12" y1="15" x2="12" y2="3" />
@@ -28,11 +42,23 @@
 
 		<h2 class="card-title">Descarga tu historial completo</h2>
 		<p class="card-desc">
-			Obtén un archivo CSV con todos tus movimientos registrados, comercios, categorías, notas y el desglose de artículos de tus tickets.
+			Obtén un archivo CSV con todos tus movimientos registrados, comercios, categorías, notas y el
+			desglose de artículos de tus tickets.
 		</p>
 
-		<a href="/ajustes/exportar" download="contlana-movimientos.csv" class="btn-primary w-full download-btn">
-			<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+		<a
+			href="/ajustes/exportar"
+			download="NAVEDDY-movimientos.csv"
+			class="download-btn btn-primary w-full"
+		>
+			<svg
+				width="20"
+				height="20"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="2"
+			>
 				<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
 				<polyline points="7 10 12 15 17 10" />
 				<line x1="12" y1="15" x2="12" y2="3" />
@@ -44,7 +70,8 @@
 	<div class="info-card card">
 		<h3 class="info-title">Compatibilidad</h3>
 		<p class="info-desc">
-			El archivo incluye codificación UTF-8 con BOM para que puedas abrirlo sin problemas en Microsoft Excel, Google Sheets, Numbers o cualquier hoja de cálculo.
+			El archivo incluye codificación UTF-8 con BOM para que puedas abrirlo sin problemas en
+			Microsoft Excel, Google Sheets, Numbers o cualquier hoja de cálculo.
 		</p>
 	</div>
 </div>

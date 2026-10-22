@@ -27,8 +27,8 @@
 	.app-main {
 		flex: 1;
 		width: 100%;
-		max-width: 32rem;
+		max-width: var(--app-max-width);
 		margin: 0 auto;
-		padding: calc(5.5rem + env(safe-area-inset-top, 0)) 1rem 1rem;
+		padding: calc(5.5rem + env(safe-area-inset-top, 0)) var(--app-gutter) 1rem;
 	}
 </style>

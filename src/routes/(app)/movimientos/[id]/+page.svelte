@@ -48,7 +48,7 @@
 </script>
 
 <svelte:head>
-	<title>{data.movement.merchant || 'Movimiento'} — contlana</title>
+	<title>{data.movement.merchant || 'Movimiento'} — NAVEDDY</title>
 </svelte:head>
 
 <div class="detail-page">

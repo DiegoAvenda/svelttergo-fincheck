@@ -306,13 +306,15 @@
 </script>
 
 <svelte:head>
-	<title>Presupuesto — contlana</title>
+	<title>Presupuesto — NAVEDDY</title>
 </svelte:head>
 
 <div class="budget-page">
 	<header class="header">
 		<h1 class="page-title">Presupuesto</h1>
-		<p class="subtitle">Planea tu gasto por ciclo y compáralo con lo real. Ciclos anteriores: solo lectura.</p>
+		<p class="subtitle">
+			Planea tu gasto por ciclo y compáralo con lo real. Ciclos anteriores: solo lectura.
+		</p>
 	</header>
 
 	{#if data.preview?.mode}
@@ -399,7 +401,10 @@
 	{/if}
 
 	{#if form?.proposed}
-		<div class="success-banner card">Propuesta creada con {form.proposedCount} líneas{#if form.proposedFromLabel}. Desde {form.proposedFromLabel}{/if}. Confírmala para guardar.</div>
+		<div class="success-banner card">
+			Propuesta creada con {form.proposedCount} líneas{#if form.proposedFromLabel}. Desde {form.proposedFromLabel}{/if}.
+			Confírmala para guardar.
+		</div>
 	{/if}
 
 	{#if form?.discardedDraft}
@@ -410,7 +415,9 @@
 		<div class="draft-banner card">
 			<div class="draft-banner-copy">
 				<p class="draft-banner-title">Propuesta pendiente de confirmar</p>
-				<p class="draft-banner-desc">Revisa importes y confirma para que cuente. También puedes descartarla.</p>
+				<p class="draft-banner-desc">
+					Revisa importes y confirma para que cuente. También puedes descartarla.
+				</p>
 			</div>
 			{#if !data.replacedConfirmed}
 				<form
@@ -461,7 +468,9 @@
 				{:else if data.incomeType === 'fixed'}
 					<span class="summary-hint">Fijos: se precarga del ciclo anterior.</span>
 				{:else if data.incomeType === 'variable'}
-					<span class="summary-hint">Variables: sin precarga. Referencia: {formatMoney(data.previousRealIncomeCents)}.</span>
+					<span class="summary-hint"
+						>Variables: sin precarga. Referencia: {formatMoney(data.previousRealIncomeCents)}.</span
+					>
 				{:else}
 					<span class="summary-hint">Define tipo de ingreso en Ajustes.</span>
 				{/if}
@@ -687,7 +696,9 @@
 						{#if line.isHidden && index === firstHiddenIndex}
 							<div class="hidden-divider">
 								<h2 class="section-title">Categorías ocultas con presupuesto</h2>
-								<p class="section-desc">Conservan su importe. No se ofrecen para nuevas asignaciones.</p>
+								<p class="section-desc">
+									Conservan su importe. No se ofrecen para nuevas asignaciones.
+								</p>
 							</div>
 						{/if}
 
@@ -1062,7 +1073,9 @@
 					{#if line.isHidden && index === firstHiddenIndex}
 						<div class="hidden-divider">
 							<h2 class="section-title">Categorías ocultas en este presupuesto</h2>
-							<p class="section-desc">Conservan su importe. No se ofrecen para nuevos movimientos.</p>
+							<p class="section-desc">
+								Conservan su importe. No se ofrecen para nuevos movimientos.
+							</p>
 						</div>
 					{/if}
 

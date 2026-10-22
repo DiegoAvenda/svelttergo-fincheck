@@ -10,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>Hábitos de consumo — contlana</title>
+	<title>Hábitos de consumo — NAVEDDY</title>
 </svelte:head>
 
 <div class="habitos-page">
@@ -59,7 +59,9 @@
 	{#if data.categoriesList.length === 0}
 		<div class="empty-state card">
 			<p class="empty-title">Sin gastos en este periodo</p>
-			<p class="empty-sub">Registra tus gastos o tickets para ver en qué hábitos se distribuye tu dinero.</p>
+			<p class="empty-sub">
+				Registra tus gastos o tickets para ver en qué hábitos se distribuye tu dinero.
+			</p>
 		</div>
 	{:else}
 		<div class="categories-list">
@@ -85,7 +87,8 @@
 								</span>
 							{/if}
 							<span class="badge count-badge">
-								{cat.count} {cat.count === 1 ? 'compra' : 'compras'}
+								{cat.count}
+								{cat.count === 1 ? 'compra' : 'compras'}
 							</span>
 						</div>
 
@@ -198,7 +201,9 @@
 		padding: 1rem 1.25rem;
 		text-decoration: none;
 		color: var(--app-text);
-		transition: transform 100ms ease, box-shadow 150ms ease;
+		transition:
+			transform 100ms ease,
+			box-shadow 150ms ease;
 
 		&:active {
 			transform: scale(0.99);

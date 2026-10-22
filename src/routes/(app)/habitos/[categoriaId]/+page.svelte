@@ -5,7 +5,7 @@
 </script>
 
 <svelte:head>
-	<title>{data.categoryName} — Hábitos — contlana</title>
+	<title>{data.categoryName} — Hábitos — NAVEDDY</title>
 </svelte:head>
 
 <div class="habit-detail-page">

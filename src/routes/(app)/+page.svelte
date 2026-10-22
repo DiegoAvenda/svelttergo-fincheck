@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { formatMoney } from '$lib/utils/money.js';
 	import { formatDate } from '$lib/utils/periods.js';
+	import Brand from '$lib/components/layout/Brand.svelte';
 
 	let { data, form } = $props();
 
@@ -9,7 +10,7 @@
 </script>
 
 <svelte:head>
-	<title>Inicio — contlana</title>
+	<title>Inicio — NAVEDDY</title>
 </svelte:head>
 
 <div class="home-page">
@@ -73,6 +74,9 @@
 
 	<!-- Encabezado con periodo actual -->
 	<header class="home-header">
+		<div class="home-brand">
+			<Brand size="sm" />
+		</div>
 		<div>
 			<span class="period-sub">Resumen del ciclo</span>
 			<h1 class="month-title">{data.monthLabel}</h1>
@@ -433,6 +437,17 @@
 		margin-bottom: 1.25rem;
 	}
 
+	.home-brand {
+		margin-bottom: 0.875rem;
+	}
+
+	/* Desde 56rem la marca vive en la barra de navegación */
+	@media (min-width: 56rem) {
+		.home-brand {
+			display: none;
+		}
+	}
+
 	.period-sub {
 		display: block;
 		font-size: 0.75rem;
@@ -507,6 +522,18 @@
 
 	.balance-card .stat-value {
 		font-size: 1.625rem;
+	}
+
+	/* En pantallas anchas las tres cifras se leen en una sola fila:
+	   el balance deja de ocupar todo el ancho. */
+	@media (min-width: 40rem) {
+		.stats-grid {
+			grid-template-columns: repeat(3, 1fr);
+		}
+
+		.balance-card {
+			grid-column: auto;
+		}
 	}
 
 	.section {

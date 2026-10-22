@@ -129,7 +129,7 @@
 							return;
 						}
 						if (blob.size > 3 * 1024 * 1024) {
-							const quality = Math.max(0.5, 0.7 * (3 * 1024 * 1024 / blob.size));
+							const quality = Math.max(0.5, 0.7 * ((3 * 1024 * 1024) / blob.size));
 							canvas.toBlob(
 								(finalBlob) => {
 									if (!finalBlob) {
@@ -177,17 +177,19 @@
 		if (!file || file.size === 0) return;
 
 		// Comprimir/redimensionar automáticamente antes de subir para evitar 413 en Vercel (límite 4.5 MB)
-		compressImage(file).then((compressedFile) => {
-			const dataTransfer = new DataTransfer();
-			dataTransfer.items.add(compressedFile);
-			e.target.files = dataTransfer.files;
-			isUploading = true;
-			e.target.form?.requestSubmit();
-		}).catch((err) => {
-			console.error('[escanear] Error al comprimir imagen:', err);
-			isUploading = true;
-			e.target.form?.requestSubmit();
-		});
+		compressImage(file)
+			.then((compressedFile) => {
+				const dataTransfer = new DataTransfer();
+				dataTransfer.items.add(compressedFile);
+				e.target.files = dataTransfer.files;
+				isUploading = true;
+				e.target.form?.requestSubmit();
+			})
+			.catch((err) => {
+				console.error('[escanear] Error al comprimir imagen:', err);
+				isUploading = true;
+				e.target.form?.requestSubmit();
+			});
 	}
 
 	/**
@@ -202,7 +204,7 @@
 </script>
 
 <svelte:head>
-	<title>Escanear ticket — contlana</title>
+	<title>Escanear ticket — NAVEDDY</title>
 </svelte:head>
 
 <div class="scan-page">

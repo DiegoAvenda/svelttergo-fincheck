@@ -68,6 +68,9 @@
 @layer base {
 	:root {
 		color-scheme: light;
+		/* Ancho máximo del contenido y margen lateral (crece en pantallas anchas) */
+		--app-max-width: 56rem;
+		--app-gutter: 1rem;
 		--app-bg: var(--color-surface-50);
 		--app-text: var(--color-surface-900);
 		--app-text-secondary: var(--color-surface-500);
@@ -117,14 +120,27 @@
 			scroll-behavior: smooth;
 		}
 	}
+
+	/* Más aire a los costados en pantallas anchas */
+	@media (min-width: 48rem) {
+		:root {
+			--app-gutter: 1.5rem;
+		}
+	}
+
+	@media (min-width: 80rem) {
+		:root {
+			--app-gutter: 2rem;
+		}
+	}
 }
 
 /* Utilidades de la app */
 @utility app-container {
-	max-width: 32rem;
-	margin-inline: auto;
-	padding-inline: 1rem;
 	width: 100%;
+	max-width: var(--app-max-width);
+	margin-inline: auto;
+	padding-inline: var(--app-gutter);
 }
 
 @utility card {

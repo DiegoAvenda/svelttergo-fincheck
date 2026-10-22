@@ -5,19 +5,30 @@
 </script>
 
 <svelte:head>
-	<title>Iniciar sesión — contlana</title>
+	<title>Iniciar sesión — NAVEDDY</title>
 </svelte:head>
 
 <div class="login-wrapper">
 	<div class="login-card card">
 		<div class="brand">
 			<div class="logo">
-				<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+				<svg
+					width="32"
+					height="32"
+					viewBox="0 0 24 24"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.5"
+					stroke-linecap="round"
+					stroke-linejoin="round"
+				>
 					<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
 				</svg>
 			</div>
-			<h1 class="title">contlana</h1>
-			<p class="subtitle">Controla tus gastos cotidianos y entiende en qué hábitos se te va el dinero.</p>
+			<h1 class="title">NAVEDDY</h1>
+			<p class="subtitle">
+				Controla tus gastos cotidianos y entiende en qué hábitos se te va el dinero.
+			</p>
 		</div>
 
 		<form
@@ -59,7 +70,8 @@
 		</form>
 
 		<p class="privacy-note">
-			Al continuar aceptas el registro de tus compras para análisis personal. Tus datos son privados.
+			Al continuar aceptas el registro de tus compras para análisis personal. Tus datos son
+			privados.
 		</p>
 	</div>
 </div>

@@ -44,7 +44,7 @@
 </script>
 
 <svelte:head>
-	<title>Registrar movimiento — contlana</title>
+	<title>Registrar movimiento — NAVEDDY</title>
 </svelte:head>
 
 <div class="register-page">
@@ -227,17 +227,17 @@
 			{#if showMore}
 				<div class="more-fields card">
 					{#if type === 'expense'}
-					<div class="field">
-						<label for="merchant" class="field-label">Comercio o lugar</label>
-						<input
-							type="text"
-							id="merchant"
-							name="merchant"
-							bind:value={merchant}
-							placeholder="Ej. Oxxo, Starbucks, Tiendita"
-							class="input-field"
-						/>
-					</div>
+						<div class="field">
+							<label for="merchant" class="field-label">Comercio o lugar</label>
+							<input
+								type="text"
+								id="merchant"
+								name="merchant"
+								bind:value={merchant}
+								placeholder="Ej. Oxxo, Starbucks, Tiendita"
+								class="input-field"
+							/>
+						</div>
 					{/if}
 
 					<div class="field">
