@@ -1,5 +1,6 @@
 <script>
 	import { enhance } from '$app/forms';
+	import logo from '$lib/assets/favicon.jpg';
 
 	let loading = $state(false);
 </script>
@@ -12,18 +13,7 @@
 	<div class="login-card card">
 		<div class="brand">
 			<div class="logo">
-				<svg
-					width="32"
-					height="32"
-					viewBox="0 0 24 24"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.5"
-					stroke-linecap="round"
-					stroke-linejoin="round"
-				>
-					<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-				</svg>
+				<img src={logo} alt="" />
 			</div>
 			<h1 class="title">NAVEDDY</h1>
 			<p class="subtitle">
@@ -101,13 +91,16 @@
 		width: 4rem;
 		height: 4rem;
 		margin: 0 auto 1.25rem;
-		background: var(--color-primary-500);
-		color: white;
 		border-radius: var(--radius-2xl);
-		display: flex;
-		align-items: center;
-		justify-content: center;
+		overflow: hidden;
 		box-shadow: 0 8px 16px -4px rgba(59, 130, 246, 0.3);
+	}
+
+	.logo img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 
 	.title {

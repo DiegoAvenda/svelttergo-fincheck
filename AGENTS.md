@@ -143,8 +143,9 @@ tests/                         # node:test sobre lógica pura
   (`size`: `sm` | `md` | `lg`) para mostrar el símbolo + "NAVEDDY". En la app
   autenticada aparece en la `TabBar` desde 56rem (espacio a los costados) y en el
   encabezado de Inicio en móvil; no la dupliques en otras pantallas.
-- El favicon (`src/lib/assets/favicon.jpg`) es el símbolo de la marca: si cambias
-  el logo, actualiza ambos.
+- El logo (`src/lib/assets/favicon.jpg`) es el símbolo de la marca y la única
+  fuente: se usa como favicon (`src/routes/+layout.svelte`) y dentro de `<Brand />`.
+  Si cambias el logo, reemplaza ese archivo.
 - Estilos de componente con `<style>` scoped. Prettier **ordena las clases
   Tailwind automáticamente** (`prettier-plugin-tailwindcss`).
 

@@ -1,4 +1,6 @@
 <script>
+	import logo from '$lib/assets/favicon.jpg';
+
 	/**
 	 * Marca de la app (símbolo + nombre) para encabezados, navegación y auth.
 	 * @typedef {'sm' | 'md' | 'lg'} BrandSize
@@ -9,16 +11,7 @@
 
 <span class="brand" data-size={size}>
 	<span class="brand-mark" aria-hidden="true">
-		<svg
-			viewBox="0 0 24 24"
-			fill="none"
-			stroke="currentColor"
-			stroke-width="2.5"
-			stroke-linecap="round"
-			stroke-linejoin="round"
-		>
-			<path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6" />
-		</svg>
+		<img src={logo} alt="" />
 	</span>
 	<span class="brand-name">NAVEDDY</span>
 </span>
@@ -38,15 +31,16 @@
 		width: 1.75rem;
 		height: 1.75rem;
 		flex-shrink: 0;
-		background: var(--color-primary-500);
-		color: white;
+		overflow: hidden;
 		border-radius: var(--radius-md);
 		box-shadow: 0 4px 10px -4px rgba(59, 130, 246, 0.55);
 	}
 
-	.brand-mark svg {
-		width: 62%;
-		height: 62%;
+	.brand-mark img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
 	}
 
 	.brand-name {
